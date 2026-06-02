@@ -1,0 +1,8 @@
+Fecha,SKU,Tipo,Cantidad,Nota
+2026-05-21 13:01:55,ACP001,Entrada Fábrica,60,
+2026-05-21 13:05:00,AE001,LOTE-Entrada Fábrica,800,Carga rápida
+2026-05-21 13:05:00,AR001,LOTE-Entrada Fábrica,900,Carga rápida
+2026-05-21 13:05:51,AR001,LOTE-Nueva OC,100,Carga rápida
+2026-05-21 13:05:51,AE001,LOTE-Nueva OC,600,Carga rápida
+2026-05-21 13:12:15,AR005,Venta / Orden (Resta del ATP),400,465- Coral
+2026-05-21 13:21:35,AR003,Venta / Orden,300,
