@@ -74,7 +74,7 @@ def parse_tia(file):
                             sku = homologation_map.get(prod_desc)
                             if not sku: sku = get_sku_from_text(prod_desc)
                             if sku:
-                                results.append({"Orden": "TIA", "SKU": sku, "Cantidad": int(cant_cell)})
+                                results.append({"Orden": "TIA", "SKU": sku, "Cantidad": int(cant_cell), "Desc_Original": prod_desc})
         if results:
             df_tia = pd.DataFrame(results).sort_values("Cantidad", ascending=False).drop_duplicates("SKU")
             return df_tia.to_dict('records')
@@ -94,7 +94,7 @@ def parse_favorita(file):
                     if nums:
                         cajas_pedidas = int(float(nums[-1]))
                         uxc = UXC_MAP.get(sku, 12)
-                        results.append({"Orden": "FAVORITA", "SKU": sku, "Cantidad": cajas_pedidas * uxc})
+                        results.append({"Orden": "FAVORITA", "SKU": sku, "Cantidad": cajas_pedidas * uxc, "Desc_Original": line})
         return results
 
 def parse_gerardo_ortiz(file):
@@ -123,7 +123,7 @@ def parse_gerardo_ortiz(file):
                         if len(nums) >= 3:
                             qty = int(float(nums[-3].replace(",", ".")))
                     if sku and qty is not None:
-                        results.append({"Orden": "GO", "SKU": sku, "Cantidad": qty})
+                        results.append({"Orden": "GO", "SKU": sku, "Cantidad": qty, "Desc_Original": line})
         return results
 
 def parse_rosado(file):
@@ -154,7 +154,7 @@ def parse_rosado(file):
                                     break
                     if not uxc: uxc = UXC_MAP.get(sku, 12)
                     if sku and qty is not None:
-                        results.append({"Orden": current_order, "SKU": sku, "Cantidad": int(qty * uxc)})
+                        results.append({"Orden": current_order, "SKU": sku, "Cantidad": int(qty * uxc), "Desc_Original": line})
         return results
 
 def parse_danec(file):
@@ -172,7 +172,7 @@ def parse_danec(file):
                     if match:
                         qty = float(match.group(1))
                         total_qty = int(qty * (UXC_MAP.get(sku, 12) if is_case else 1))
-                        results.append({"Orden": "DANEC", "SKU": sku, "Cantidad": total_qty})
+                        results.append({"Orden": "DANEC", "SKU": sku, "Cantidad": total_qty, "Desc_Original": line})
         return results
 
 def detect_chain_and_parse(file):

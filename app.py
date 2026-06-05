@@ -3,6 +3,8 @@ import pandas as pd
 import os
 from datetime import datetime
 import io
+import re
+import base64
 import order_parsers  # Nuevo módulo para procesar PDFs de cadenas
 
 # --- CONFIGURACIÓN DE PÁGINA ---
@@ -38,6 +40,7 @@ st.markdown("""
 DB_FILE = "inventario_data.csv"
 HISTORY_FILE = "historial_movimientos.csv"
 CONCILIATION_HISTORY = "historial_conciliaciones.csv"
+SALES_HISTORY = "historial_ventas.csv"
 
 CATALOGO = {
     "ACP001": "Toallitas húmedas x 100",
@@ -62,6 +65,10 @@ def load_data():
         for col in ["Min_Alert", "Nota_Alerta", "Costo"]:
             if col not in df.columns:
                 df[col] = 10 if col == "Min_Alert" else (0.0 if col == "Costo" else "")
+
+        # CORRECCIÓN: Asegurar que Nota_Alerta sea siempre texto y no tenga NaNs (evita error en data_editor)
+        df["Nota_Alerta"] = df["Nota_Alerta"].fillna("").astype(str)
+
         df = df[["SKU", "Producto", "Físico", "Llegando a Bodega", "Comprometido", "Min_Alert", "Nota_Alerta", "Costo"]]
         return df
     else:
@@ -78,6 +85,16 @@ def log_movement(sku, tipo, cantidad, nota=""):
 def log_conciliation(conciliation_df):
     conciliation_df["Fecha_Conciliacion"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     conciliation_df.to_csv(CONCILIATION_HISTORY, mode='a', header=not os.path.exists(CONCILIATION_HISTORY), index=False)
+
+def log_sale(sku, cantidad, referencia=""):
+    entry = pd.DataFrame([{
+        "Fecha": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), 
+        "SKU": sku, 
+        "Producto": CATALOGO.get(sku, "Desconocido"),
+        "Cantidad": cantidad, 
+        "Referencia": referencia
+    }])
+    entry.to_csv(SALES_HISTORY, mode='a', header=not os.path.exists(SALES_HISTORY), index=False)
 
 def process_kardex(file):
     try:
@@ -179,22 +196,132 @@ m4.metric("Alertas", len(df[df["Estado"] != "🟢 Disponible"]))
 
 st.markdown("---")
 
-tab_inv, tab_conc, tab_pre, tab_oc, tab_rep, tab_his, tab_est, tab_cfg = st.tabs(["INVENTARIO", "CONCILIACIÓN 🔍", "PRE-VALIDACIÓN ✅", "ORDENES DE COMPRA 📄", "REPORTE DE COMPRA", "HISTORIAL", "ESTRATEGIA 📊", "CONFIGURACIÓN"])
+tab_inv, tab_fact, tab_ventas, tab_conc, tab_pre, tab_oc, tab_rep, tab_his, tab_est, tab_cfg = st.tabs(["INVENTARIO", "REGISTRAR FACTURACIÓN 🧾", "REPORTE DE VENTAS 📊", "CONCILIACIÓN 🔍", "PRE-VALIDACIÓN ✅", "ORDENES DE COMPRA 📄", "REPORTE DE COMPRA", "HISTORIAL", "ESTRATEGIA 📊", "CONFIGURACIÓN"])
 
 with tab_inv:
-    st.dataframe(
+    st.subheader("Control de Inventario")
+    # Tabla editable para cambios rápidos
+    df_editable = st.data_editor(
         df[["SKU", "Producto", "Físico", "Llegando a Bodega", "Comprometido", "ATP", "Estado", "Nota_Alerta"]],
         column_config={
-            "SKU": st.column_config.TextColumn("SKU", width="small"),
-            "Producto": st.column_config.TextColumn("Producto", width="large"),
-            "ATP": st.column_config.NumberColumn("Disponible", format="%d"),
-            "Estado": st.column_config.TextColumn("Estado", width="medium"),
+            "SKU": st.column_config.TextColumn("SKU", disabled=True),
+            "Producto": st.column_config.TextColumn("Producto", disabled=True),
+            "ATP": st.column_config.NumberColumn("Disponible (ATP)", disabled=True, format="%d"),
+            "Estado": st.column_config.TextColumn("Estado", disabled=True),
             "Físico": st.column_config.NumberColumn("Físico", format="%d"),
-            "Nota_Alerta": st.column_config.TextColumn("Observaciones", width="medium")
+            "Llegando a Bodega": st.column_config.NumberColumn("En Tránsito", format="%d"),
+            "Comprometido": st.column_config.NumberColumn("Comprometido", format="%d"),
+            "Nota_Alerta": st.column_config.TextColumn("Observaciones")
         },
         use_container_width=True,
-        hide_index=True
+        hide_index=True,
+        key="editor_inventario"
     )
+    
+    if st.button("💾 Guardar Cambios en Inventario", use_container_width=True):
+        # Actualizar el dataframe original con los cambios del editor
+        for index, row in df_editable.iterrows():
+            sku = row["SKU"]
+            df.loc[df["SKU"] == sku, ["Físico", "Llegando a Bodega", "Comprometido", "Nota_Alerta"]] = [row["Físico"], row["Llegando a Bodega"], row["Comprometido"], row["Nota_Alerta"]]
+        save_data(df)
+        st.success("✅ Inventario actualizado correctamente.")
+        st.rerun()
+
+with tab_fact:
+    st.subheader("Registro Masivo de Facturación")
+    st.info("Puedes pegar texto o subir múltiples PDFs de facturas. El sistema consolidará todo antes de descontar.")
+    
+    col_text, col_pdf = st.columns(2)
+    
+    with col_text:
+        st.markdown("### ⌨️ Por Texto")
+        fact_text = st.text_area("Pega aquí el detalle", height=150, placeholder="12.00 SHAMPOO ANA REGENEXT 400 ML. -", key="fact_area")
+    
+    with col_pdf:
+        st.markdown("### 📄 Por PDF")
+        fact_files = st.file_uploader("Subir Facturas (PDF)", type=["pdf"], accept_multiple_files=True)
+
+    if st.button("🔍 Analizar y Consolidar Movimiento", use_container_width=True):
+        consolidado = {}
+        processed_logs = []
+        errors = []
+        
+        # Procesar Texto
+        if fact_text:
+            lines = fact_text.strip().split("\n")
+            for line in lines:
+                if not line.strip(): continue
+                qty_match = re.search(r'(\d+[\.,]\d+|\d+)', line)
+                if qty_match:
+                    qty = int(float(qty_match.group(1).replace(",", ".")))
+                    product_text = line.replace(qty_match.group(0), "", 1).strip()
+                    sku = order_parsers.get_sku_from_text(product_text)
+                    if sku:
+                        consolidado[sku] = consolidado.get(sku, 0) + qty
+                        processed_logs.append((sku, qty, "Manual / Texto"))
+                    else: errors.append(f"No reconocido (Texto): {line[:30]}")
+        
+        # Procesar PDFs
+        if fact_files:
+            for f in fact_files:
+                # Usamos el detector de cadenas pero para facturas genéricas
+                _, items = order_parsers.detect_chain_and_parse(f)
+                if items:
+                    for item in items:
+                        sku = item["SKU"]
+                        qty = item["Cantidad"]
+                        consolidado[sku] = consolidado.get(sku, 0) + qty
+                        processed_logs.append((sku, qty, f"PDF: {f.name}"))
+                else: errors.append(f"No se pudo leer: {f.name}")
+        
+        if consolidado:
+            st.session_state["consolidado_fact"] = consolidado
+            st.session_state["logs_fact"] = processed_logs
+            st.session_state["errors_fact"] = errors
+        else:
+            st.error("No se detectó ningún dato válido.")
+
+    if "consolidado_fact" in st.session_state:
+        st.markdown("---")
+        st.markdown("### 📋 Resumen a Descontar")
+        res_data = []
+        for k, v in st.session_state["consolidado_fact"].items():
+            res_data.append({"SKU": k, "Producto": CATALOGO.get(k, "Desconocido"), "Total": v})
+        resumen_df = pd.DataFrame(res_data)
+        st.table(resumen_df)
+        
+        if st.button("✅ CONFIRMAR Y RESTAR DE STOCK", type="primary", use_container_width=True):
+            for sku, qty in st.session_state["consolidado_fact"].items():
+                df.loc[df["SKU"] == sku, "Físico"] -= qty
+                log_movement(sku, "FACTURACIÓN CONSOLIDADA", -qty, "Procesado múltiple")
+                log_sale(sku, qty, "Carga Consolidada")
+            
+            save_data(df)
+            st.success("🎉 Stock actualizado y ventas registradas.")
+            del st.session_state["consolidado_fact"]
+            st.rerun()
+
+with tab_ventas:
+    st.subheader("Análisis de Ventas (Facturado)")
+    if os.path.exists(SALES_HISTORY):
+        s_df = pd.read_csv(SALES_HISTORY)
+        s_df["Fecha"] = pd.to_datetime(s_df["Fecha"])
+        
+        col_v1, col_v2 = st.columns([1, 2])
+        
+        with col_v1:
+            st.markdown("### Top Productos")
+            top_v = s_df.groupby("Producto")["Cantidad"].sum().sort_values(ascending=False)
+            st.dataframe(top_v)
+            
+        with col_v2:
+            st.markdown("### Ventas por Producto")
+            st.bar_chart(top_v)
+            
+        st.markdown("### Historial Detallado")
+        st.dataframe(s_df.sort_values(by="Fecha", ascending=False), use_container_width=True, hide_index=True)
+    else:
+        st.info("Aún no hay ventas registradas.")
 
 with tab_conc:
     st.subheader("Conciliación Individual por Producto")
@@ -242,83 +369,78 @@ with tab_pre:
 
 with tab_oc:
     st.subheader("Analizador de Órdenes de Compra (PDF)")
-    st.info("Sube la OC de la cadena (TIA, FAVORITA, DANEC, GERARDO ORTIZ) para verificar stock y facturación.")
     
-    oc_file = st.file_uploader("Subir PDF de Orden de Compra", type=["pdf"])
+    oc_file = st.file_uploader("Subir PDF de Orden de Compra", type=["pdf"], key="oc_uploader")
     
     if oc_file:
-        cadena, items_oc = order_parsers.detect_chain_and_parse(oc_file)
+        col_pdf, col_data = st.columns([1, 1])
         
-        if items_oc:
-            st.success(f"✅ OC Detectada: **{cadena}**")
+        with col_pdf:
+            st.markdown("### 📄 Vista Previa OC")
+            base64_pdf = base64.b64encode(oc_file.read()).decode('utf-8')
+            pdf_display = f'<iframe src="data:application/pdf;base64,{base64_pdf}" width="100%" height="800" type="application/pdf"></iframe>'
+            st.markdown(pdf_display, unsafe_allow_html=True)
+            # Reset file pointer for parsing
+            oc_file.seek(0)
             
-            # Convertir a DataFrame para comparar
-            oc_df = pd.DataFrame(items_oc)
+        with col_data:
+            st.markdown("### 🔍 Validación y Despacho")
+            cadena, items_oc = order_parsers.detect_chain_and_parse(oc_file)
             
-            # Unir con el inventario actual
-            # Normalizamos SKUs para el cruce
-            oc_df['SKU'] = oc_df['SKU'].str.upper().str.strip()
-            
-            # Traer nombres y ATP del sistema
-            validation_df = oc_df.merge(df[["SKU", "Producto", "ATP"]], on="SKU", how="left")
-            
-            # Si no encontró el SKU por código, podría ser un SKU que no tenemos o error de parseo
-            if validation_df["Producto"].isnull().any():
-                st.warning("⚠️ Algunos SKUs de la OC no fueron reconocidos en el sistema.")
-            
-            validation_df["Alcanza"] = validation_df.apply(lambda r: "🟢 SÍ" if pd.notnull(r["ATP"]) and r["ATP"] >= r["Cantidad"] else "🔴 NO", axis=1)
-            
-            puedo_facturar_oc = all(validation_df["Alcanza"] == "🟢 SÍ")
-            
-            if puedo_facturar_oc:
-                st.success(f"### ✅ FACTURABLE: La OC de {cadena} puede procesarse completa.")
-            else:
-                st.error(f"### ❌ NO FACTURABLE: Hay faltantes para esta OC.")
-            
-            # Mostrar por Orden si hay más de una (como en El Rosado)
-            ordenes_unicas = validation_df["Orden"].unique()
-            if len(ordenes_unicas) > 1 or (len(ordenes_unicas) == 1 and ordenes_unicas[0] != cadena):
-                for ord_num in ordenes_unicas:
-                    with st.expander(f"Orden Nº {ord_num}", expanded=True):
-                        ord_df = validation_df[validation_df["Orden"] == ord_num]
-                        st.dataframe(
-                            ord_df[["SKU", "Producto", "Cantidad", "ATP", "Alcanza"]],
-                            column_config={
-                                "Cantidad": st.column_config.NumberColumn("Pedida"),
-                                "ATP": st.column_config.NumberColumn("Disponible (ATP)"),
-                            },
-                            use_container_width=True,
-                            hide_index=True
-                        )
-            else:
-                st.dataframe(
-                    validation_df[["SKU", "Producto", "Cantidad", "ATP", "Alcanza"]],
+            if items_oc:
+                st.success(f"✅ Detectado: **{cadena}**")
+                
+                oc_df = pd.DataFrame(items_oc)
+                oc_df['SKU'] = oc_df['SKU'].str.upper().str.strip()
+                
+                # Unir con el inventario
+                validation_df = oc_df.merge(df[["SKU", "Producto", "ATP", "Físico"]], on="SKU", how="left")
+                
+                # Calcular sugerencia de despacho
+                def suggest_qty(row):
+                    if pd.isna(row["ATP"]) or row["ATP"] <= 0: return 0
+                    return min(int(row["Cantidad"]), int(row["ATP"]))
+
+                validation_df["Sugerencia"] = validation_df.apply(suggest_qty, axis=1)
+                validation_df["Estado_V"] = validation_df.apply(
+                    lambda r: "🟢" if r["Sugerencia"] == r["Cantidad"] else ("🟡" if r["Sugerencia"] > 0 else "🔴"), 
+                    axis=1
+                )
+                
+                # Editor de despacho
+                st.write("Ajusta las cantidades si es necesario antes de confirmar:")
+                edited_oc = st.data_editor(
+                    validation_df[["Estado_V", "Desc_Original", "Producto", "Cantidad", "ATP", "Sugerencia", "SKU"]],
                     column_config={
-                        "Cantidad": st.column_config.NumberColumn("Pedida en OC"),
-                        "ATP": st.column_config.NumberColumn("Disponible (ATP)"),
+                        "Estado_V": st.column_config.TextColumn(" ", width="small"),
+                        "Desc_Original": st.column_config.TextColumn("OC Original (Izquierda)", disabled=True),
+                        "Producto": st.column_config.TextColumn("Sistema (Derecha)", disabled=True),
+                        "Cantidad": st.column_config.NumberColumn("Pedido OC", disabled=True),
+                        "ATP": st.column_config.NumberColumn("ATP", disabled=True),
+                        "Sugerencia": st.column_config.NumberColumn("A Despachar", format="%d"),
+                        "SKU": st.column_config.TextColumn("SKU", disabled=True)
                     },
                     use_container_width=True,
-                    hide_index=True
+                    hide_index=True,
+                    key="editor_oc"
                 )
-            
-            # Botón para descargar resumen de validación
-            buffer_oc = io.BytesIO()
-            with pd.ExcelWriter(buffer_oc, engine='xlsxwriter') as writer:
-                validation_df.to_excel(writer, index=False, sheet_name='Validacion_OC')
-            
-            st.download_button(
-                label="📥 Descargar Reporte de Validación OC (XLSX)",
-                data=buffer_oc.getvalue(),
-                file_name=f"validacion_OC_{cadena}_{datetime.now().strftime('%Y%m%d')}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True
-            )
-        else:
-            if cadena == "DESCONOCIDA":
-                st.error("❌ No se reconoció el formato de esta OC. Cadenas soportadas: TIA, FAVORITA, DANEC, GERARDO ORTIZ.")
-                st.info("💡 Si es de EL ROSADO, por favor envíame un ejemplo para entrenar al sistema.")
+                
+                if st.button("🚀 Confirmar Facturación y Restar de Físico", use_container_width=True, type="primary"):
+                    items_processed = 0
+                    for _, row in edited_oc.iterrows():
+                        if row["Sugerencia"] > 0:
+                            qty = int(row["Sugerencia"])
+                            sku = row["SKU"]
+                            df.loc[df["SKU"] == sku, "Físico"] -= qty
+                            log_movement(sku, f"VENTA OC: {cadena}", -qty, f"OC Original: {row['Desc_Original'][:40]}")
+                            items_processed += 1
+                    
+                    if items_processed > 0:
+                        save_data(df)
+                        st.success(f"✅ Se han facturado {items_processed} productos. El stock físico ha sido actualizado.")
+                        st.rerun()
             else:
-                st.error(f"❌ No se pudieron extraer ítems de la OC de {cadena}. Verifica que el PDF sea legible.")
+                st.error("No se pudieron extraer datos del PDF.")
 
 with tab_rep:
     st.subheader("Necesidades de Reabastecimiento")
@@ -353,12 +475,63 @@ with tab_est:
     else: st.info("Sin datos estratégicos aún.")
 
 with tab_cfg:
-    st.subheader("Configuración")
-    cfg_edit = st.data_editor(df[["SKU", "Producto", "Min_Alert", "Costo", "Nota_Alerta"]], column_config={"Costo": st.column_config.NumberColumn("Costo ($)", format="$ %.2f")}, use_container_width=True, hide_index=True)
-    if st.button("Guardar Parámetros"):
-        df["Min_Alert"] = cfg_edit["Min_Alert"]; df["Costo"] = cfg_edit["Costo"]; df["Nota_Alerta"] = cfg_edit["Nota_Alerta"]
-        save_data(df); st.success("Guardado."); st.rerun()
-    if st.button("REINICIAR TODO", type="secondary"):
-        if st.checkbox("Confirmar reinicio"):
-            df["Físico"] = 0; df["Llegando a Bodega"] = 0; df["Comprometido"] = 0; df["Costo"] = 0.0
-            save_data(df); st.rerun()
+    st.subheader("Configuración de Sistema")
+    
+    # 1. Edición de Parámetros
+    st.markdown("### 🛠️ Parámetros de Productos")
+    cfg_edit = st.data_editor(
+        df[["SKU", "Producto", "Min_Alert", "Costo", "Nota_Alerta"]], 
+        column_config={
+            "SKU": st.column_config.TextColumn("SKU", disabled=True),
+            "Producto": st.column_config.TextColumn("Producto", disabled=True),
+            "Costo": st.column_config.NumberColumn("Costo ($)", format="$ %.2f"),
+            "Min_Alert": st.column_config.NumberColumn("Alerta Mín.")
+        }, 
+        use_container_width=True, 
+        hide_index=True
+    )
+    if st.button("💾 Guardar Parámetros", use_container_width=True):
+        # Actualizar df con los datos editados
+        for _, row in cfg_edit.iterrows():
+            df.loc[df["SKU"] == row["SKU"], ["Min_Alert", "Costo", "Nota_Alerta"]] = [row["Min_Alert"], row["Costo"], row["Nota_Alerta"]]
+        save_data(df)
+        st.success("✅ Parámetros guardados.")
+        st.rerun()
+
+    st.markdown("---")
+    
+    # 2. Gestión de Limpieza (Reset)
+    st.markdown("### ⚠️ Zona de Limpieza")
+    
+    col_reset1, col_reset2 = st.columns(2)
+    
+    with col_reset1:
+        st.markdown("**Limpieza Individual**")
+        prod_to_reset = st.selectbox("Seleccionar producto para limpiar", [f"{r['SKU']} | {r['Producto']}" for _, r in df.iterrows()], key="reset_individual")
+        confirm_ind = st.checkbox("Confirmar limpieza individual", key="check_ind")
+        if st.button("🧹 Limpiar Cantidades Producto", type="primary", use_container_width=True):
+            if confirm_ind:
+                sku_reset = prod_to_reset.split(" | ")[0]
+                df.loc[df["SKU"] == sku_reset, ["Físico", "Llegando a Bodega", "Comprometido"]] = 0
+                save_data(df)
+                log_movement(sku_reset, "RESET INDIVIDUAL", 0, "Cantidades puestas a 0")
+                st.success(f"✅ Cantidades de {sku_reset} reiniciadas.")
+                st.rerun()
+            else:
+                st.warning("Debes marcar el checkbox de confirmación.")
+
+    with col_reset2:
+        st.markdown("**Reinicio Total**")
+        st.write("Esto pondrá a 0 todas las cantidades de TODOS los productos.")
+        confirm_all = st.checkbox("⚠️ CONFIRMAR REINICIO TOTAL", key="check_all")
+        if st.button("🔥 REINICIAR TODO EL INVENTARIO", type="secondary", use_container_width=True):
+            if confirm_all:
+                df["Físico"] = 0
+                df["Llegando a Bodega"] = 0
+                df["Comprometido"] = 0
+                save_data(df)
+                log_movement("SISTEMA", "RESET TOTAL", 0, "Todo el inventario puesto a 0")
+                st.success("✅ Todo el inventario ha sido reiniciado.")
+                st.rerun()
+            else:
+                st.error("Acción cancelada. Debes confirmar con el checkbox.")
