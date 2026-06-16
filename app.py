@@ -23,7 +23,7 @@ st.markdown("""
         --accent: #0f766e;
     }
     .block-container {
-        padding-top: 1.5rem;
+        padding-top: 4rem;
         padding-bottom: 2rem;
     }
     h1, h2, h3 {
