@@ -479,10 +479,14 @@ if zona == "🏠 Inicio":
 
     if not bajo_minimo.empty:
         st.markdown("##### Requieren atención")
+        atencion = bajo_minimo[["SKU", "Producto", "UXC", "Disponible", "Estado"]].copy()
+        atencion["Cajas"] = atencion.apply(lambda r: storage.cajas_y_sueltas(r["Disponible"], r["UXC"])[0], axis=1)
+        atencion["Sueltas"] = atencion.apply(lambda r: storage.cajas_y_sueltas(r["Disponible"], r["UXC"])[1], axis=1)
         st.dataframe(
-            bajo_minimo[["SKU", "Producto", "Disponible", "Disponible C/U", "Estado"]],
+            atencion[["SKU", "Producto", "Disponible", "Cajas", "Sueltas", "Estado"]],
             width="stretch",
             hide_index=True,
+            column_config={"Disponible": st.column_config.NumberColumn("Disponible (unidades)", format="%d")},
         )
     else:
         st.success("Todo el inventario está sobre el mínimo. 👍")
@@ -784,21 +788,24 @@ elif zona == "📊 Consultar":
 
     with tab_inv:
         st.subheader("Control de Inventario")
-        st.caption("Cada producto muestra el total en unidades y, al lado, su equivalencia en cajas + unidades sueltas (según las unidades por caja de cada SKU).")
-        # Tabla editable para cambios rápidos. Se muestran SIEMPRE las dos
-        # vistas: unidades (columnas editables) y cajas + sueltas (texto).
+        st.caption("'Unidades' es el total. 'Cajas' y 'Sueltas' desglosan ese total según las unidades por caja del SKU (Sueltas = unidades que no completan una caja).")
+        # Columnas separadas: total en unidades, cajas completas y sueltas.
+        inv_view = df[["SKU", "Producto", "UXC", "Físico", "Disponible", "Reservado", "Por Recibir", "Estado", "Nota_Alerta"]].copy()
+        inv_view["Físico cajas"] = inv_view.apply(lambda r: storage.cajas_y_sueltas(r["Físico"], r["UXC"])[0], axis=1)
+        inv_view["Físico sueltas"] = inv_view.apply(lambda r: storage.cajas_y_sueltas(r["Físico"], r["UXC"])[1], axis=1)
+
         df_editable = st.data_editor(
-            df[["SKU", "Producto", "UXC", "Físico", "Físico C/U", "Disponible", "Disponible C/U", "Reservado", "Por Recibir", "Estado", "Nota_Alerta"]],
+            inv_view[["SKU", "Producto", "UXC", "Físico", "Físico cajas", "Físico sueltas", "Disponible", "Reservado", "Por Recibir", "Estado", "Nota_Alerta"]],
             column_config={
                 "SKU": st.column_config.TextColumn("SKU", disabled=True),
                 "Producto": st.column_config.TextColumn("Producto", disabled=True),
                 "UXC": st.column_config.NumberColumn("U × caja", disabled=True, format="%d", help="Unidades por caja de este SKU."),
-                "Físico": st.column_config.NumberColumn("Físico (unid.)", format="%d", help="Stock físico total en unidades."),
-                "Físico C/U": st.column_config.TextColumn("Físico (cajas + sueltas)", disabled=True),
-                "Disponible": st.column_config.NumberColumn("Disponible (unid.)", disabled=True, format="%d"),
-                "Disponible C/U": st.column_config.TextColumn("Disponible (cajas + sueltas)", disabled=True),
-                "Reservado": st.column_config.NumberColumn("Reservado (unid.)", format="%d"),
-                "Por Recibir": st.column_config.NumberColumn("Por Recibir (unid.)", format="%d"),
+                "Físico": st.column_config.NumberColumn("Físico (unidades)", format="%d", help="Stock físico total en unidades. Es la columna editable."),
+                "Físico cajas": st.column_config.NumberColumn("Físico (cajas)", disabled=True, format="%d"),
+                "Físico sueltas": st.column_config.NumberColumn("Físico (sueltas)", disabled=True, format="%d"),
+                "Disponible": st.column_config.NumberColumn("Disponible (unidades)", disabled=True, format="%d"),
+                "Reservado": st.column_config.NumberColumn("Reservado (unidades)", format="%d"),
+                "Por Recibir": st.column_config.NumberColumn("Por Recibir (unidades)", format="%d"),
                 "Estado": st.column_config.TextColumn("Estado", disabled=True),
                 "Nota_Alerta": st.column_config.TextColumn("Observaciones")
             },
@@ -809,6 +816,7 @@ elif zona == "📊 Consultar":
 
         if st.button("💾 Guardar Cambios en Inventario", width="stretch"):
             # Actualizar el dataframe original con los cambios del editor
+            # (solo las columnas editables; cajas/sueltas se recalculan solas).
             for index, row in df_editable.iterrows():
                 sku = row["SKU"]
                 df.loc[df["SKU"] == sku, ["Físico", "Reservado", "Por Recibir", "Nota_Alerta"]] = [row["Físico"], row["Reservado"], row["Por Recibir"], row["Nota_Alerta"]]
