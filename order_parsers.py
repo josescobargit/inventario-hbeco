@@ -198,3 +198,83 @@ def detect_chain_and_parse(file):
         if "INDUSTRIAL DANEC" in text: return "DANEC", parse_danec(file)
         if "CORPORACION EL ROSADO" in text or "EL ROSADO" in text: return "EL ROSADO", parse_rosado(file)
     return "DESCONOCIDA", None
+
+
+# --- LECTURA DE REPORTE DE BODEGA (captura de Excel: SKU | DESCRIPCIÓN | UM | SALDO) ---
+# El SKU que usa bodega es distinto al SKU del catálogo de la app, así que se
+# homologa por código. Si bodega agrega un código nuevo, cae al respaldo por
+# descripción (get_sku_from_text).
+WAREHOUSE_SKU_MAP = {
+    "IECPANA0001": "AR001",
+    "IECPANA0002": "AR002",
+    "IECPANA0003": "AR003",
+    "IECPANA0004": "AR004",
+    "IECPANA0005": "AR007",
+    "IECPANA0006": "AR005",
+    "IECPANA0007": "AR006",
+    "IELWANA0001": "ACP001",
+    "IECPELX0022": "AE001",
+    "IECPELX0023": "AE002",
+    "IECPELX0024": "AE003",
+}
+
+# Fila de cabecera tipo "SKU DESCRIPCIÓN UM SALDO" que el OCR puede devolver.
+_BODEGA_ROW = re.compile(r'^([A-Z]{2,}\d{3,})\s+(.+?)\s+(\d{1,5})\s+([\d.,]+)$')
+
+
+def map_warehouse_sku(codigo_bodega, descripcion):
+    codigo_bodega = (codigo_bodega or "").upper().strip()
+    if codigo_bodega in WAREHOUSE_SKU_MAP:
+        return WAREHOUSE_SKU_MAP[codigo_bodega]
+    return get_sku_from_text(descripcion or "")
+
+
+def parse_bodega_stock_image(file):
+    """Lee una captura (foto/screenshot) del reporte de bodega vía OCR.
+
+    Espera columnas tipo: SKU | DESCRIPCIÓN | UM | SALDO, donde SALDO ya
+    viene en unidades totales (no cajas). Devuelve (items, no_reconocidos)
+    o (None, mensaje_error) si falta la dependencia de OCR.
+    """
+    try:
+        import pytesseract
+        from PIL import Image
+    except ImportError:
+        return None, (
+            "Falta el soporte de OCR (pytesseract/Pillow/tesseract-ocr). "
+            "Revisa requirements.txt y packages.txt del proyecto."
+        )
+
+    image = Image.open(file)
+    try:
+        texto = pytesseract.image_to_string(image, config="--psm 6", lang="spa")
+    except Exception:
+        texto = pytesseract.image_to_string(image, config="--psm 6")
+
+    items = []
+    no_reconocidos = []
+    for linea in texto.split("\n"):
+        linea = linea.strip()
+        if not linea:
+            continue
+        match = _BODEGA_ROW.match(linea.upper())
+        if not match:
+            continue
+        codigo_bodega, descripcion, um_str, saldo_str = match.groups()
+        try:
+            um = int(um_str)
+            saldo = int(float(saldo_str.replace(",", "")))
+        except ValueError:
+            continue
+
+        sku_app = map_warehouse_sku(codigo_bodega, descripcion)
+        item = {
+            "SKU_Bodega": codigo_bodega,
+            "Descripcion": descripcion.strip(),
+            "UM": um,
+            "Saldo": saldo,
+            "SKU": sku_app,
+        }
+        (items if sku_app else no_reconocidos).append(item)
+
+    return items, no_reconocidos

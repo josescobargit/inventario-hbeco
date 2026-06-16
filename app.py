@@ -158,7 +158,7 @@ st.sidebar.caption(f"Hora local: {storage.now_display()} ({storage.timezone_labe
 st.sidebar.markdown("---")
 
 with st.sidebar:
-    metodo = st.radio("Método de Entrada", ["Individual", "Lote de Texto", "Importar Archivo"], label_visibility="collapsed")
+    metodo = st.radio("Método de Entrada", ["Individual", "Lote de Texto", "Importar Archivo", "Foto de Bodega"], label_visibility="collapsed")
     st.markdown("---")
 
     if metodo == "Individual":
@@ -220,6 +220,53 @@ with st.sidebar:
                     log_movement("SISTEMA", "Importación Archivo", 0, file.name)
                     st.rerun()
             except Exception as e: st.error(f"Error: {e}")
+
+    elif metodo == "Foto de Bodega":
+        st.subheader("Cargar Reporte de Bodega (Imagen)")
+        st.caption("Sube la captura del Excel de bodega (columnas SKU | Descripción | UM | Saldo). Se muestra una vista previa antes de aplicar nada.")
+        bodega_img = st.file_uploader("Imagen del reporte (PNG/JPG)", type=["png", "jpg", "jpeg"], key="bodega_img")
+
+        if bodega_img is not None and st.button("🔍 Leer imagen", width="stretch"):
+            items, no_reconocidos = order_parsers.parse_bodega_stock_image(bodega_img)
+            if items is None:
+                st.error(no_reconocidos)
+            elif not items and not no_reconocidos:
+                st.warning("No se detectaron filas reconocibles. Prueba con una imagen más nítida, recortada solo a la tabla.")
+            else:
+                st.session_state["bodega_items"] = items
+                st.session_state["bodega_no_reconocidos"] = no_reconocidos
+
+        if st.session_state.get("bodega_items"):
+            items = st.session_state["bodega_items"]
+            preview_rows = []
+            for it in items:
+                hay_match = it["SKU"] in df["SKU"].values
+                actual = int(df.loc[df["SKU"] == it["SKU"], "Físico"].iloc[0]) if hay_match else None
+                preview_rows.append({
+                    "SKU Bodega": it["SKU_Bodega"],
+                    "SKU App": it["SKU"],
+                    "Producto": CATALOGO.get(it["SKU"], "Desconocido"),
+                    "UM (uds/caja)": it["UM"],
+                    "Saldo Bodega (uds)": it["Saldo"],
+                    "Físico Actual App": actual if actual is not None else "—",
+                    "Diferencia": (it["Saldo"] - actual) if actual is not None else "—",
+                })
+            st.markdown("### Vista previa — confirma antes de aplicar")
+            st.dataframe(pd.DataFrame(preview_rows), width="stretch", hide_index=True)
+
+            no_reconocidos = st.session_state.get("bodega_no_reconocidos") or []
+            if no_reconocidos:
+                st.warning(f"{len(no_reconocidos)} fila(s) no se pudieron asociar a un SKU del catálogo. No se tocarán; revísalas manualmente.")
+                st.dataframe(pd.DataFrame(no_reconocidos), width="stretch", hide_index=True)
+
+            if st.button("✅ Confirmar y actualizar Físico desde Bodega", type="primary", width="stretch"):
+                for it in items:
+                    storage.set_fisico(it["SKU"], it["Saldo"], DB_FILE)
+                    log_movement(it["SKU"], "Carga Bodega (Imagen)", it["Saldo"], f"SKU bodega {it['SKU_Bodega']}")
+                del st.session_state["bodega_items"]
+                st.session_state.pop("bodega_no_reconocidos", None)
+                st.success("✅ Físico actualizado desde el reporte de bodega.")
+                st.rerun()
 
 # --- CUERPO PRINCIPAL ---
 st.markdown(
