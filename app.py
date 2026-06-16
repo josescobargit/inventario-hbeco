@@ -788,14 +788,17 @@ elif zona == "📊 Consultar":
 
     with tab_inv:
         st.subheader("Control de Inventario")
-        st.caption("'Unidades' es el total. 'Cajas' y 'Sueltas' desglosan ese total según las unidades por caja del SKU (Sueltas = unidades que no completan una caja).")
-        # Columnas separadas: total en unidades, cajas completas y sueltas.
+        st.caption("Cada total tiene su propio desglose: las cajas/sueltas de Físico salen de Físico, y las de Disponible salen de Disponible (Disponible = Físico − Reservado). 'Sueltas' = unidades que no completan una caja.")
+        # Cada cantidad se desglosa en SU propio (cajas, sueltas) para no
+        # mezclar el resto de Físico con el de Disponible.
         inv_view = df[["SKU", "Producto", "UXC", "Físico", "Disponible", "Reservado", "Por Recibir", "Estado", "Nota_Alerta"]].copy()
         inv_view["Físico cajas"] = inv_view.apply(lambda r: storage.cajas_y_sueltas(r["Físico"], r["UXC"])[0], axis=1)
         inv_view["Físico sueltas"] = inv_view.apply(lambda r: storage.cajas_y_sueltas(r["Físico"], r["UXC"])[1], axis=1)
+        inv_view["Disp cajas"] = inv_view.apply(lambda r: storage.cajas_y_sueltas(r["Disponible"], r["UXC"])[0], axis=1)
+        inv_view["Disp sueltas"] = inv_view.apply(lambda r: storage.cajas_y_sueltas(r["Disponible"], r["UXC"])[1], axis=1)
 
         df_editable = st.data_editor(
-            inv_view[["SKU", "Producto", "UXC", "Físico", "Físico cajas", "Físico sueltas", "Disponible", "Reservado", "Por Recibir", "Estado", "Nota_Alerta"]],
+            inv_view[["SKU", "Producto", "UXC", "Físico", "Físico cajas", "Físico sueltas", "Disponible", "Disp cajas", "Disp sueltas", "Reservado", "Por Recibir", "Estado", "Nota_Alerta"]],
             column_config={
                 "SKU": st.column_config.TextColumn("SKU", disabled=True),
                 "Producto": st.column_config.TextColumn("Producto", disabled=True),
@@ -803,7 +806,9 @@ elif zona == "📊 Consultar":
                 "Físico": st.column_config.NumberColumn("Físico (unidades)", format="%d", help="Stock físico total en unidades. Es la columna editable."),
                 "Físico cajas": st.column_config.NumberColumn("Físico (cajas)", disabled=True, format="%d"),
                 "Físico sueltas": st.column_config.NumberColumn("Físico (sueltas)", disabled=True, format="%d"),
-                "Disponible": st.column_config.NumberColumn("Disponible (unidades)", disabled=True, format="%d"),
+                "Disponible": st.column_config.NumberColumn("Disponible (unidades)", disabled=True, format="%d", help="Físico − Reservado."),
+                "Disp cajas": st.column_config.NumberColumn("Disponible (cajas)", disabled=True, format="%d"),
+                "Disp sueltas": st.column_config.NumberColumn("Disponible (sueltas)", disabled=True, format="%d"),
                 "Reservado": st.column_config.NumberColumn("Reservado (unidades)", format="%d"),
                 "Por Recibir": st.column_config.NumberColumn("Por Recibir (unidades)", format="%d"),
                 "Estado": st.column_config.TextColumn("Estado", disabled=True),
