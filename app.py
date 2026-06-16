@@ -77,6 +77,46 @@ st.markdown("""
         border-radius: 8px;
         overflow: hidden;
     }
+    .brand-line {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        margin: 0 0 12px 0;
+    }
+    .brand-badge {
+        width: 30px;
+        height: 30px;
+        border-radius: 8px;
+        background: var(--accent);
+        color: #fff;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1rem;
+    }
+    .brand-name {
+        font-size: 1.02rem;
+        font-weight: 600;
+        line-height: 1.1;
+    }
+    .daycard {
+        border: 1px solid var(--line);
+        border-left: 4px solid var(--accent);
+        border-radius: 8px;
+        padding: 10px 14px;
+        background: var(--surface);
+        margin-bottom: 8px;
+        font-size: 0.96rem;
+    }
+    .day-note {
+        color: var(--accent);
+        font-weight: 600;
+    }
+    .reminder {
+        font-size: 0.85rem;
+        color: var(--muted);
+        margin-bottom: 14px;
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -100,6 +140,36 @@ CATALOGO = {
     "AR006": "Acondicionador Ana Regenext Sachet 18 ML.",
     "AR007": "Shampoo Ana Baby 400 ML."
 }
+
+# --- CONFIG EDITABLE DEL PANEL DE INICIO ---
+# Nota que aparece según el día de la semana (lunes=0 ... domingo=6).
+# Solo está puesto el ejemplo de martes; completa los demás cuando quieras.
+NOTA_POR_DIA = {
+    0: "",
+    1: "Normalmente se factura Coral.",
+    2: "",
+    3: "",
+    4: "",
+    5: "",
+    6: "",
+}
+# Recordatorios fijos que se muestran en Inicio (edítalos a tu gusto).
+RECORDATORIOS = [
+    "Revisa el turno de bodega antes de despachar.",
+]
+DIAS_ES = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
+MESES_ES = [
+    "enero", "febrero", "marzo", "abril", "mayo", "junio",
+    "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre",
+]
+
+
+def saludo_fecha():
+    dt = storage.now_dt()
+    dia = DIAS_ES[dt.weekday()]
+    fecha = f"{dt.day} de {MESES_ES[dt.month - 1]} de {dt.year}"
+    return dia, fecha, NOTA_POR_DIA.get(dt.weekday(), "")
+
 
 def load_data():
     return storage.load_inventory(CATALOGO, DB_FILE, uxc_map=order_parsers.UXC_MAP)
@@ -172,13 +242,26 @@ df["Estado"] = df.apply(calculate_status, axis=1)
 df["Físico C/U"] = df.apply(lambda r: _packaging_label(r["Físico"], r["UXC"]), axis=1)
 df["Disponible C/U"] = df.apply(lambda r: _packaging_label(r["Disponible"], r["UXC"]), axis=1)
 
-# --- SIDEBAR ---
-st.sidebar.title("Operaciones")
-st.sidebar.caption(f"Persistencia: {storage.storage_label()}")
-st.sidebar.caption(f"Hora local: {storage.now_display()} ({storage.timezone_label()})")
-st.sidebar.markdown("---")
-
+# --- SIDEBAR: marca + navegación + carga rápida ---
 with st.sidebar:
+    st.markdown(
+        """
+        <div class="brand-line">
+            <span class="brand-badge">📦</span>
+            <span class="brand-name">Inventario HBECO</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    zona = st.radio(
+        "Navegación",
+        ["🏠 Inicio", "🛠️ Operar", "📊 Consultar", "🔍 Auditar", "⚙️ Configurar"],
+        label_visibility="collapsed",
+        key="zona_principal",
+    )
+    st.caption(f"{storage.storage_label()} · {storage.now_display()} ({storage.timezone_label()})")
+    st.markdown("---")
+    st.markdown("##### Carga rápida")
     metodo = st.radio("Método de Entrada", ["Individual", "Lote de Texto", "Importar Archivo", "Foto de Bodega"], label_visibility="collapsed")
     st.markdown("---")
 
@@ -356,18 +439,55 @@ m3.metric("Reservado", int(df["Reservado"].sum()))
 m4.metric("Alertas", len(df[df["Estado"] != "🟢 Disponible"]))
 
 # --- ZONAS DE TRABAJO ---
-# Antes había 10 pestañas sueltas; se agrupan en 4 zonas para reducir el
-# ruido visual y que cada una tenga un propósito claro.
-zona = st.radio(
-    "Zona",
-    ["🛠️ Operar", "📊 Consultar", "🔍 Auditar", "⚙️ Configurar"],
-    horizontal=True,
-    label_visibility="collapsed",
-    key="zona_principal",
-)
-st.markdown("---")
+# La navegación entre zonas vive en el menú lateral (st.radio "zona").
+# En celular, Streamlit colapsa ese menú en el botón ☰.
 
-if zona == "🛠️ Operar":
+if zona == "🏠 Inicio":
+    dia, fecha, nota = saludo_fecha()
+    nota_html = f' · <span class="day-note">{nota}</span>' if nota else ""
+    st.markdown(
+        f'<div class="daycard"><b>Hoy es {dia}</b>, {fecha}{nota_html}</div>',
+        unsafe_allow_html=True,
+    )
+    if RECORDATORIOS:
+        st.markdown(
+            '<div class="reminder">🔔 ' + " · ".join(RECORDATORIOS) + "</div>",
+            unsafe_allow_html=True,
+        )
+
+    # Estado del día (discreto): lo que necesita atención hoy.
+    bajo_minimo = df[df["Estado"] != "🟢 Disponible"]
+
+    hoy = storage.now_dt().strftime("%Y-%m-%d")
+    inv_df = storage.read_invoices(INVOICE_HISTORY)
+    fact_hoy = 0
+    if not inv_df.empty and "Cantidad" in inv_df.columns:
+        mask_hoy = (inv_df["Estado"] == "Activa") & (inv_df["Fecha"].astype(str).str.startswith(hoy))
+        fact_hoy = int(pd.to_numeric(inv_df.loc[mask_hoy, "Cantidad"], errors="coerce").fillna(0).sum())
+
+    conc_df = storage.read_history("conciliations", CONCILIATION_HISTORY)
+    ultima_conc = "—"
+    if not conc_df.empty:
+        fechas_conc = pd.to_datetime(conc_df["Fecha_Conciliacion"], errors="coerce").dropna()
+        if not fechas_conc.empty:
+            ultima_conc = fechas_conc.max().strftime("%d/%m/%Y")
+
+    d1, d2, d3 = st.columns(3)
+    d1.metric("Productos bajo mínimo", len(bajo_minimo))
+    d2.metric("Facturado hoy (uds)", fact_hoy)
+    d3.metric("Última conciliación", ultima_conc)
+
+    if not bajo_minimo.empty:
+        st.markdown("##### Requieren atención")
+        st.dataframe(
+            bajo_minimo[["SKU", "Producto", "Disponible", "Disponible C/U", "Estado"]],
+            width="stretch",
+            hide_index=True,
+        )
+    else:
+        st.success("Todo el inventario está sobre el mínimo. 👍")
+
+elif zona == "🛠️ Operar":
     tab_fact, tab_oc, tab_pre = st.tabs(["📄 Facturación", "📦 Órdenes (OC)", "✅ Pre-validación"])
 
     with tab_fact:

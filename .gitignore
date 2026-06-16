@@ -4,6 +4,6 @@ __pycache__/
 *.sqlite3
 *.sqlite3-*
 .DS_Store
-.streamlit/
+.streamlit/secrets.toml
 debug_tia.py
 test_reconciliation.py

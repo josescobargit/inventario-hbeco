@@ -1,0 +1,4 @@
+[theme]
+# Acento teal de la marca: tiñe botones, radios seleccionados y enlaces.
+primaryColor = "#0f766e"
+font = "sans serif"

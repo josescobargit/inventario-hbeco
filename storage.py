@@ -47,6 +47,11 @@ def now_display():
     return datetime.now(_timezone()).strftime(DISPLAY_DATETIME_FORMAT)
 
 
+def now_dt():
+    """Fecha-hora actual con zona horaria de la app (para saludos por día)."""
+    return datetime.now(_timezone())
+
+
 def timezone_label():
     return APP_TIMEZONE
 
