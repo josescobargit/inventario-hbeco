@@ -15,6 +15,7 @@ INVENTORY_COLUMNS = [
     "Min_Alert",
     "Nota_Alerta",
     "Costo",
+    "UXC",
 ]
 
 DB_PATH = os.getenv("INVENTARIO_DB_PATH", "inventario.sqlite3")
@@ -55,7 +56,8 @@ def format_datetime_series(series):
     return parsed.dt.strftime(DISPLAY_DATETIME_FORMAT).fillna(series)
 
 
-def _empty_inventory(catalog):
+def _empty_inventory(catalog, uxc_map=None):
+    uxc_map = uxc_map or {}
     return pd.DataFrame(
         [
             {
@@ -67,15 +69,38 @@ def _empty_inventory(catalog):
                 "Min_Alert": 10,
                 "Nota_Alerta": "",
                 "Costo": 0.0,
+                "UXC": uxc_map.get(sku, 12),
             }
             for sku, product in catalog.items()
         ]
     )
 
 
-def normalize_inventory(df, catalog):
+def cajas_y_sueltas(unidades, uxc):
+    """Convierte unidades totales a (cajas, sueltas) según unidades por caja.
+    Si uxc no es válido (vacío, 0, negativo) usa 12 como respaldo, nunca
+    revienta con división por cero."""
+    try:
+        uxc = int(uxc)
+    except (TypeError, ValueError):
+        uxc = 0
+    if uxc <= 0:
+        uxc = 12
+    unidades = max(0, int(unidades))
+    return unidades // uxc, unidades % uxc
+
+
+def format_cajas_sueltas(unidades, uxc):
+    cajas, sueltas = cajas_y_sueltas(unidades, uxc)
+    if sueltas == 0:
+        return f"{cajas} caja(s)"
+    return f"{cajas} caja(s) + {sueltas} u."
+
+
+def normalize_inventory(df, catalog, uxc_map=None):
+    uxc_map = uxc_map or {}
     if df is None or df.empty:
-        df = _empty_inventory(catalog)
+        df = _empty_inventory(catalog, uxc_map)
     else:
         df = df.copy()
 
@@ -94,6 +119,8 @@ def normalize_inventory(df, catalog):
                 df[col] = 10
             elif col == "Costo":
                 df[col] = 0.0
+            elif col == "UXC":
+                df[col] = 0  # se completa abajo con uxc_map (0 = "sin configurar")
             elif col == "Nota_Alerta":
                 df[col] = ""
             else:
@@ -110,6 +137,7 @@ def normalize_inventory(df, catalog):
             "Min_Alert": 10,
             "Nota_Alerta": "",
             "Costo": 0.0,
+            "UXC": uxc_map.get(sku, 12),
         }
         for sku, product in catalog.items()
         if sku not in known
@@ -121,9 +149,15 @@ def normalize_inventory(df, catalog):
     df["Producto"] = df["Producto"].fillna(df["SKU"].map(catalog)).fillna("").astype(str)
     df["Nota_Alerta"] = df["Nota_Alerta"].fillna("").astype(str)
 
-    for col in ["Físico", "Por Recibir", "Reservado", "Min_Alert"]:
+    for col in ["Físico", "Por Recibir", "Reservado", "Min_Alert", "UXC"]:
         df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0).astype(int)
     df["Costo"] = pd.to_numeric(df["Costo"], errors="coerce").fillna(0.0)
+
+    # UXC en 0 significa "todavía sin configurar" (archivo viejo, fila nueva):
+    # se completa con el valor conocido del catálogo, o 12 por defecto.
+    sin_uxc = df["UXC"] <= 0
+    if sin_uxc.any():
+        df.loc[sin_uxc, "UXC"] = df.loc[sin_uxc, "SKU"].map(uxc_map).fillna(12).astype(int)
 
     return df[INVENTORY_COLUMNS].sort_values("SKU").reset_index(drop=True)
 
@@ -141,7 +175,8 @@ def _init_sqlite():
                 Reservado INTEGER NOT NULL DEFAULT 0,
                 MinAlert INTEGER NOT NULL DEFAULT 10,
                 NotaAlerta TEXT NOT NULL DEFAULT '',
-                Costo REAL NOT NULL DEFAULT 0
+                Costo REAL NOT NULL DEFAULT 0,
+                UXC INTEGER NOT NULL DEFAULT 12
             )
             """
         )
@@ -207,6 +242,8 @@ def _ensure_inventory_schema(conn):
         conn.execute("ALTER TABLE inventory ADD COLUMN Reservado INTEGER NOT NULL DEFAULT 0")
         if "Comprometido" in columns:
             conn.execute("UPDATE inventory SET Reservado = Comprometido")
+    if "UXC" not in columns:
+        conn.execute("ALTER TABLE inventory ADD COLUMN UXC INTEGER NOT NULL DEFAULT 12")
 
 
 def _inventory_to_sql_columns(df):
@@ -243,22 +280,22 @@ def _seed_table_from_csv_if_empty(conn, table, csv_path, columns):
     seed_df[columns].to_sql(table, conn, if_exists="append", index=False)
 
 
-def load_inventory(catalog, csv_path="inventario_data.csv"):
+def load_inventory(catalog, csv_path="inventario_data.csv", uxc_map=None):
     if STORAGE_BACKEND == "csv":
         if os.path.exists(csv_path):
-            return normalize_inventory(pd.read_csv(csv_path), catalog)
-        return _empty_inventory(catalog)
+            return normalize_inventory(pd.read_csv(csv_path), catalog, uxc_map)
+        return _empty_inventory(catalog, uxc_map)
 
     _init_sqlite()
     with _connect() as conn:
         count = conn.execute("SELECT COUNT(*) FROM inventory").fetchone()[0]
     if count == 0:
-        seed = pd.read_csv(csv_path) if os.path.exists(csv_path) else _empty_inventory(catalog)
-        save_inventory(normalize_inventory(seed, catalog), csv_path=csv_path)
+        seed = pd.read_csv(csv_path) if os.path.exists(csv_path) else _empty_inventory(catalog, uxc_map)
+        save_inventory(normalize_inventory(seed, catalog, uxc_map), csv_path=csv_path)
     with _connect() as conn:
         df = pd.read_sql_query("SELECT * FROM inventory", conn)
 
-    return normalize_inventory(_inventory_from_sql_columns(df), catalog)
+    return normalize_inventory(_inventory_from_sql_columns(df), catalog, uxc_map)
 
 
 def save_inventory(df, csv_path="inventario_data.csv"):

@@ -3,20 +3,23 @@ import pandas as pd
 import re
 import difflib
 
-# --- CONFIGURACIÓN DE EMPAQUE (UXC) ---
+# --- CONFIGURACIÓN DE EMPAQUE (UXC = unidades por caja) ---
+# AR005/AR006 (sachets) confirmados en 288 con el reporte real de bodega.
 UXC_MAP = {
     "AE001": 12,
     "AE002": 12,
-    "AE003": 6,   
+    "AE003": 6,
     "AR001": 12,
     "AR002": 12,
     "AR003": 12,
     "AR004": 12,
+    "AR005": 288,
+    "AR006": 288,
     "AR007": 12,
     "ACP001": 12,
 }
 
-# Todos los SKU del catálogo (incluye sachets AR005/AR006 que no tienen UXC).
+# Todos los SKU del catálogo.
 KNOWN_SKUS = [
     "ACP001", "AE001", "AE002", "AE003",
     "AR001", "AR002", "AR003", "AR004",
