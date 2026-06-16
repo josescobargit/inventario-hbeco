@@ -1,6 +1,7 @@
 import pdfplumber
 import pandas as pd
 import re
+import difflib
 
 # --- CONFIGURACIÓN DE EMPAQUE (UXC) ---
 UXC_MAP = {
@@ -219,17 +220,84 @@ WAREHOUSE_SKU_MAP = {
 }
 
 # Ancla de inicio de fila: el código de SKU de bodega (ej. IECPANA0001).
-_BODEGA_SKU_CODE = re.compile(r'\b([A-Z]{2,}\d{3,})\b')
+# Todos los códigos reales tienen 11 caracteres; se acepta un rango (8-13)
+# para tolerar que el OCR pierda o agregue algún carácter. Se exige además
+# que parezca un código (tenga un dígito, o sea muy parecido a uno conocido)
+# para no confundir palabras sueltas de la descripción (ej. "CRECIMIENTO").
+_BODEGA_SKU_CODE = re.compile(r'\b([A-Z0-9]{8,13})\b')
 # Dentro del tramo de texto de una fila, los últimos dos números son UM y Saldo
 # (la descripción puede traer números intermedios, ej. "400 ML", "18 ML").
 _BODEGA_TAIL_NUMS = re.compile(r'^(.*?)(\d{1,4})\s+([\d.,]+)\s*$')
+# Respaldo: a veces el OCR solo logra leer un número de toda la fila (suele
+# ser el Saldo, que es la columna más a la derecha y más contrastada).
+_BODEGA_TAIL_ONE_NUM = re.compile(r'^(.*?)(\d[\d.,]*)\s*$')
+
+
+def _code_similarity(token, code):
+    return difflib.SequenceMatcher(None, token, code).ratio()
+
+
+def _best_warehouse_code(token, cutoff=0.5):
+    """Encuentra el código de bodega conocido más parecido a 'token'.
+    Tolera errores típicos de OCR (I/J/¡/l confundidos, 0/O/D, 5/S, 8/B...).
+
+    Si el token perdió justo el dígito que distingue a varios productos
+    (ej. "IECPANA000X"), va a quedar igual de parecido a todos ellos. En ese
+    caso es ambiguo y NO se adivina: mejor dejarlo sin resolver que asignar
+    una cantidad al producto equivocado.
+    """
+    token = (token or "").upper().strip()
+    if not token:
+        return None
+    ratios = sorted(
+        ((c, _code_similarity(token, c)) for c in WAREHOUSE_SKU_MAP),
+        key=lambda par: par[1],
+        reverse=True,
+    )
+    mejor_codigo, mejor_ratio = ratios[0]
+    if mejor_ratio < cutoff:
+        return None
+    if len(ratios) > 1 and abs(ratios[1][1] - mejor_ratio) < 1e-9:
+        return None  # empate: ambiguo, no adivinar
+    return mejor_codigo
 
 
 def map_warehouse_sku(codigo_bodega, descripcion):
     codigo_bodega = (codigo_bodega or "").upper().strip()
     if codigo_bodega in WAREHOUSE_SKU_MAP:
         return WAREHOUSE_SKU_MAP[codigo_bodega]
+    mejor = _best_warehouse_code(codigo_bodega)
+    if mejor:
+        return WAREHOUSE_SKU_MAP[mejor]
     return get_sku_from_text(descripcion or "")
+
+
+def _looks_like_bodega_code(token):
+    """¿Sirve este token como límite de fila? Umbral deliberadamente más
+    bajo que el de map_warehouse_sku(): aquí solo se decide dónde corta una
+    fila de otra (para no mezclar números de filas distintas), no a qué
+    SKU corresponde. Filtra palabras sueltas de la descripción (ej.
+    "CRECIMIENTO", "ACONDICIONADOR"), que quedan muy por debajo del umbral."""
+    if any(ch.isdigit() for ch in token):
+        return True
+    mejor_ratio = max((_code_similarity(token, c) for c in WAREHOUSE_SKU_MAP), default=0)
+    return mejor_ratio >= 0.45
+
+
+def _preprocess_for_ocr(image):
+    """Agranda, pasa a escala de grises y sube contraste antes del OCR.
+    Tesseract falla mucho más en capturas de Excel pequeñas/comprimidas
+    (ej. reenviadas por WhatsApp); esto ayuda bastante sin garantizar
+    precisión perfecta."""
+    from PIL import Image as PILImage, ImageOps
+
+    resample = getattr(getattr(PILImage, "Resampling", PILImage), "LANCZOS")
+    img = image.convert("L")
+    lado_mayor = max(img.size)
+    factor = 3 if lado_mayor < 1200 else (2 if lado_mayor < 2200 else 1)
+    if factor > 1:
+        img = img.resize((img.width * factor, img.height * factor), resample=resample)
+    return ImageOps.autocontrast(img)
 
 
 def parse_bodega_stock_image(file):
@@ -239,6 +307,10 @@ def parse_bodega_stock_image(file):
     viene en unidades totales (no cajas). No depende de que cada fila salga
     en una sola línea limpia: ancla cada fila por el código de SKU de bodega
     y toma todo el texto hasta el siguiente código como esa fila.
+
+    Si el OCR no logra leer UM/Saldo de una fila (imagen borrosa), la fila
+    se devuelve igual con esos campos en None en vez de descartarse en
+    silencio, para que se pueda completar a mano en la revisión.
 
     Devuelve (items, no_reconocidos, texto_ocr_crudo) o
     (None, mensaje_error, "") si falta la dependencia de OCR.
@@ -254,15 +326,20 @@ def parse_bodega_stock_image(file):
 
     image = Image.open(file)
     try:
-        texto = pytesseract.image_to_string(image, config="--psm 6", lang="spa")
+        image_proc = _preprocess_for_ocr(image)
     except Exception:
-        texto = pytesseract.image_to_string(image, config="--psm 6")
+        image_proc = image
+
+    try:
+        texto = pytesseract.image_to_string(image_proc, config="--psm 6", lang="spa")
+    except Exception:
+        texto = pytesseract.image_to_string(image_proc, config="--psm 6")
 
     # Colapsa saltos de línea/espacios para no depender de cómo el OCR
     # partió cada fila.
     texto_plano = re.sub(r'\s+', ' ', texto.upper()).strip()
 
-    matches = list(_BODEGA_SKU_CODE.finditer(texto_plano))
+    matches = [m for m in _BODEGA_SKU_CODE.finditer(texto_plano) if _looks_like_bodega_code(m.group(1))]
     items = []
     no_reconocidos = []
     for i, m in enumerate(matches):
@@ -271,15 +348,27 @@ def parse_bodega_stock_image(file):
         fin = matches[i + 1].start() if i + 1 < len(matches) else len(texto_plano)
         tramo = texto_plano[inicio:fin].strip()
 
+        descripcion, um, saldo = tramo, None, None
         tail = _BODEGA_TAIL_NUMS.match(tramo)
-        if not tail:
-            continue
-        descripcion, um_str, saldo_str = tail.groups()
-        try:
-            um = int(um_str)
-            saldo = int(float(saldo_str.replace(",", "")))
-        except ValueError:
-            continue
+        if tail:
+            desc_candidata, um_str, saldo_str = tail.groups()
+            try:
+                um = int(um_str)
+                saldo = int(float(saldo_str.replace(",", "")))
+                descripcion = desc_candidata
+            except ValueError:
+                um, saldo = None, None
+        if saldo is None:
+            # Respaldo: el OCR solo trajo un número en esta fila (probablemente
+            # el Saldo). UM queda en None para completarlo a mano en la revisión.
+            tail_uno = _BODEGA_TAIL_ONE_NUM.match(tramo)
+            if tail_uno:
+                desc_candidata, saldo_str = tail_uno.groups()
+                try:
+                    saldo = int(float(saldo_str.replace(",", "")))
+                    descripcion = desc_candidata
+                except ValueError:
+                    saldo = None
 
         sku_app = map_warehouse_sku(codigo_bodega, descripcion)
         item = {

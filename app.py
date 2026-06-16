@@ -223,7 +223,11 @@ with st.sidebar:
 
     elif metodo == "Foto de Bodega":
         st.subheader("Cargar Reporte de Bodega (Imagen)")
-        st.caption("Sube la captura del Excel de bodega (columnas SKU | Descripción | UM | Saldo). Se muestra una vista previa antes de aplicar nada.")
+        st.caption(
+            "Sube la captura del Excel de bodega (columnas SKU | Descripción | UM | Saldo). "
+            "El OCR es un punto de partida, no un dato confiable por sí solo: "
+            "siempre revisa y corrige la tabla antes de confirmar."
+        )
         bodega_img = st.file_uploader("Imagen del reporte (PNG/JPG)", type=["png", "jpg", "jpeg"], key="bodega_img")
 
         if bodega_img is not None and st.button("🔍 Leer imagen", width="stretch"):
@@ -231,8 +235,13 @@ with st.sidebar:
             st.session_state["bodega_ocr_texto"] = texto_ocr
             if items is None:
                 st.error(no_reconocidos)
+                st.session_state.pop("bodega_items", None)
+                st.session_state.pop("bodega_no_reconocidos", None)
             elif not items and not no_reconocidos:
-                st.warning("No se detectaron filas reconocibles. Revisa el texto que detectó el OCR abajo, o prueba con una imagen más nítida recortada solo a la tabla.")
+                st.warning(
+                    "No se detectó ningún código de SKU. Revisa el texto OCR abajo, o usa una imagen "
+                    "más nítida — evita reenviar por WhatsApp, comprime mucho la foto y empeora el OCR."
+                )
                 st.session_state.pop("bodega_items", None)
                 st.session_state.pop("bodega_no_reconocidos", None)
             else:
@@ -247,32 +256,56 @@ with st.sidebar:
             items = st.session_state["bodega_items"]
             preview_rows = []
             for it in items:
-                hay_match = it["SKU"] in df["SKU"].values
-                actual = int(df.loc[df["SKU"] == it["SKU"], "Físico"].iloc[0]) if hay_match else None
+                actual = int(df.loc[df["SKU"] == it["SKU"], "Físico"].iloc[0]) if it["SKU"] in df["SKU"].values else 0
+                # Si el OCR no logró leer el Saldo de esta fila, se deja el
+                # Físico actual como valor por defecto: si el usuario no la
+                # corrige, confirmar no cambia nada (nunca se pone en 0 solo).
+                saldo_default = it["Saldo"] if it["Saldo"] is not None else actual
                 preview_rows.append({
                     "SKU Bodega": it["SKU_Bodega"],
                     "SKU App": it["SKU"],
-                    "Producto": CATALOGO.get(it["SKU"], "Desconocido"),
-                    "UM (uds/caja)": it["UM"],
-                    "Saldo Bodega (uds)": it["Saldo"],
-                    "Físico Actual App": actual if actual is not None else "—",
-                    "Diferencia": (it["Saldo"] - actual) if actual is not None else "—",
+                    "Producto (detectado)": CATALOGO.get(it["SKU"], "Desconocido"),
+                    "UM (uds/caja)": it["UM"] if it["UM"] is not None else 0,
+                    "Saldo Bodega (uds)": saldo_default,
+                    "Físico Actual App": actual,
                 })
-            st.markdown("### Vista previa — confirma antes de aplicar")
-            st.dataframe(pd.DataFrame(preview_rows), width="stretch", hide_index=True)
+
+            st.markdown("### Revisa y corrige antes de aplicar")
+            st.caption("Edita cualquier celda si el OCR se equivocó. Puedes agregar o borrar filas con el botón ➕/🗑️ de la tabla.")
+            edited_bodega = st.data_editor(
+                pd.DataFrame(preview_rows),
+                column_config={
+                    "SKU Bodega": st.column_config.TextColumn("SKU Bodega", disabled=True),
+                    "SKU App": st.column_config.SelectboxColumn("SKU App", options=list(CATALOGO.keys()), required=True),
+                    "Producto (detectado)": st.column_config.TextColumn("Producto (detectado)", disabled=True),
+                    "UM (uds/caja)": st.column_config.NumberColumn("UM (uds/caja)", format="%d"),
+                    "Saldo Bodega (uds)": st.column_config.NumberColumn("Saldo Bodega (uds)", format="%d"),
+                    "Físico Actual App": st.column_config.NumberColumn("Físico Actual App", disabled=True, format="%d"),
+                },
+                width="stretch",
+                hide_index=True,
+                num_rows="dynamic",
+                key="editor_bodega",
+            )
 
             no_reconocidos = st.session_state.get("bodega_no_reconocidos") or []
             if no_reconocidos:
-                st.warning(f"{len(no_reconocidos)} fila(s) no se pudieron asociar a un SKU del catálogo. No se tocarán; revísalas manualmente.")
+                st.warning(f"{len(no_reconocidos)} código(s) detectado(s) que no se pudieron asociar a ningún SKU del catálogo (no aparecen en la tabla de arriba). Cárgalos manualmente con 'Individual':")
                 st.dataframe(pd.DataFrame(no_reconocidos), width="stretch", hide_index=True)
 
             if st.button("✅ Confirmar y actualizar Físico desde Bodega", type="primary", width="stretch"):
-                for it in items:
-                    storage.set_fisico(it["SKU"], it["Saldo"], DB_FILE)
-                    log_movement(it["SKU"], "Carga Bodega (Imagen)", it["Saldo"], f"SKU bodega {it['SKU_Bodega']}")
+                aplicados = 0
+                for _, row in edited_bodega.iterrows():
+                    sku = row["SKU App"]
+                    saldo = row["Saldo Bodega (uds)"]
+                    if not sku or pd.isna(saldo):
+                        continue
+                    storage.set_fisico(sku, int(saldo), DB_FILE)
+                    log_movement(sku, "Carga Bodega (Imagen)", int(saldo), f"SKU bodega {row['SKU Bodega']}")
+                    aplicados += 1
                 del st.session_state["bodega_items"]
                 st.session_state.pop("bodega_no_reconocidos", None)
-                st.success("✅ Físico actualizado desde el reporte de bodega.")
+                st.success(f"✅ Físico actualizado para {aplicados} producto(s) desde el reporte de bodega.")
                 st.rerun()
 
 # --- CUERPO PRINCIPAL ---
