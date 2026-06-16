@@ -117,6 +117,72 @@ st.markdown("""
         color: var(--muted);
         margin-bottom: 14px;
     }
+    .greet {
+        display: flex;
+        align-items: center;
+        gap: 13px;
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-left: 4px solid var(--accent);
+        border-radius: 10px;
+        padding: 13px 16px;
+        margin-bottom: 12px;
+    }
+    .greet-ic {
+        width: 42px;
+        height: 42px;
+        border-radius: 12px;
+        background: rgba(15, 118, 110, 0.12);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 22px;
+        flex-shrink: 0;
+    }
+    .greet-name { font-size: 1.12rem; font-weight: 600; line-height: 1.15; }
+    .greet-date { font-size: 0.85rem; color: var(--muted); margin: 1px 0 6px; }
+    .greet-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        font-size: 0.78rem;
+        background: rgba(15, 118, 110, 0.10);
+        color: var(--accent);
+        padding: 3px 10px;
+        border-radius: 20px;
+    }
+    .kpi-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        gap: 10px;
+        margin-bottom: 6px;
+    }
+    .kpi {
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 13px 14px;
+    }
+    .kpi-top { display: flex; align-items: center; gap: 8px; margin-bottom: 9px; }
+    .kpi-ic {
+        width: 28px;
+        height: 28px;
+        border-radius: 8px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 15px;
+    }
+    .ic-teal { background: rgba(29, 158, 117, 0.16); }
+    .ic-amber { background: rgba(239, 159, 39, 0.18); }
+    .ic-blue { background: rgba(55, 138, 221, 0.16); }
+    .ic-gray { background: rgba(95, 94, 90, 0.14); }
+    .kpi-lbl { font-size: 0.8rem; color: var(--muted); }
+    .kpi-num { font-size: 1.5rem; font-weight: 600; line-height: 1; }
+    .kpi-num.date { font-size: 1.05rem; }
+    .kpi-num.amber { color: #BA7517; }
+    .kpi-u { font-size: 0.8rem; color: var(--muted); font-weight: 400; }
+    .kpi-sub { font-size: 0.72rem; color: var(--muted); margin-top: 6px; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -157,6 +223,8 @@ NOTA_POR_DIA = {
 RECORDATORIOS = [
     "Revisa el turno de bodega antes de despachar.",
 ]
+# Nombre para el saludo del panel de Inicio ("Buenos días, ..."). Vacío = sin nombre.
+NOMBRE_OPERADOR = ""
 DIAS_ES = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
 MESES_ES = [
     "enero", "febrero", "marzo", "abril", "mayo", "junio",
@@ -169,6 +237,21 @@ def saludo_fecha():
     dia = DIAS_ES[dt.weekday()]
     fecha = f"{dt.day} de {MESES_ES[dt.month - 1]} de {dt.year}"
     return dia, fecha, NOTA_POR_DIA.get(dt.weekday(), "")
+
+
+def saludo_hora():
+    """Devuelve (texto, emoji) según la hora local."""
+    h = storage.now_dt().hour
+    if h < 12:
+        return "Buenos días", "☀️"
+    if h < 19:
+        return "Buenas tardes", "🌤️"
+    return "Buenas noches", "🌙"
+
+
+def miles(n):
+    """Formatea un entero con punto de miles (estilo Ecuador): 12458 -> 12.458."""
+    return f"{int(n):,}".replace(",", ".")
 
 
 def load_data():
@@ -422,31 +505,19 @@ with st.sidebar:
                 st.rerun()
 
 # --- CUERPO PRINCIPAL ---
-st.markdown(
-    f"""
-    <div class="app-hero">
-        <h1>Inventario Disponible</h1>
-        <p>Control operativo de stock físico, reservas, producto por recibir y facturación trazable. Actualizado: {storage.now_display()}</p>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
-
-m1, m2, m3, m4 = st.columns(4)
-m1.metric("Stock Físico", int(df["Físico"].sum()))
-m2.metric("Disponible", int(df["Disponible"].sum()))
-m3.metric("Reservado", int(df["Reservado"].sum()))
-m4.metric("Alertas", len(df[df["Estado"] != "🟢 Disponible"]))
-
-# --- ZONAS DE TRABAJO ---
 # La navegación entre zonas vive en el menú lateral (st.radio "zona").
-# En celular, Streamlit colapsa ese menú en el botón ☰.
+# En celular, Streamlit colapsa ese menú en el botón ☰. El resumen global
+# vive ahora en las tarjetas del panel de Inicio.
 
 if zona == "🏠 Inicio":
     dia, fecha, nota = saludo_fecha()
-    nota_html = f' · <span class="day-note">{nota}</span>' if nota else ""
+    saludo, emoji_hora = saludo_hora()
+    nombre = f", {NOMBRE_OPERADOR}" if NOMBRE_OPERADOR else ""
+    pill_html = f'<span class="greet-pill">ℹ️ {nota}</span>' if nota else ""
     st.markdown(
-        f'<div class="daycard"><b>Hoy es {dia}</b>, {fecha}{nota_html}</div>',
+        f'<div class="greet"><span class="greet-ic">{emoji_hora}</span>'
+        f'<div><div class="greet-name">{saludo}{nombre}</div>'
+        f'<div class="greet-date">{dia}, {fecha}</div>{pill_html}</div></div>',
         unsafe_allow_html=True,
     )
     if RECORDATORIOS:
@@ -455,27 +526,46 @@ if zona == "🏠 Inicio":
             unsafe_allow_html=True,
         )
 
-    # Estado del día (discreto): lo que necesita atención hoy.
+    # --- Cálculos del estado del día ---
     bajo_minimo = df[df["Estado"] != "🟢 Disponible"]
+    disp_total = int(df["Disponible"].sum())
+    skus_stock = int((df["Disponible"] > 0).sum())
+    n_bajo = len(bajo_minimo)
+    u_riesgo = int(bajo_minimo["Disponible"].clip(lower=0).sum())
 
     hoy = storage.now_dt().strftime("%Y-%m-%d")
     inv_df = storage.read_invoices(INVOICE_HISTORY)
-    fact_hoy = 0
+    fact_hoy, n_fact = 0, 0
     if not inv_df.empty and "Cantidad" in inv_df.columns:
         mask_hoy = (inv_df["Estado"] == "Activa") & (inv_df["Fecha"].astype(str).str.startswith(hoy))
         fact_hoy = int(pd.to_numeric(inv_df.loc[mask_hoy, "Cantidad"], errors="coerce").fillna(0).sum())
+        n_fact = int(inv_df.loc[mask_hoy, "NumeroFactura"].nunique())
 
     conc_df = storage.read_history("conciliations", CONCILIATION_HISTORY)
-    ultima_conc = "—"
+    ultima_conc, conc_sub = "—", "sin registros"
     if not conc_df.empty:
         fechas_conc = pd.to_datetime(conc_df["Fecha_Conciliacion"], errors="coerce").dropna()
         if not fechas_conc.empty:
+            idx_ult = fechas_conc.idxmax()
             ultima_conc = fechas_conc.max().strftime("%d/%m/%Y")
+            dif_ult = pd.to_numeric(conc_df.loc[idx_ult, "Diferencia"], errors="coerce")
+            conc_sub = "sin diferencias" if (pd.notna(dif_ult) and dif_ult == 0) else "con diferencias"
 
-    d1, d2, d3 = st.columns(3)
-    d1.metric("Productos bajo mínimo", len(bajo_minimo))
-    d2.metric("Facturado hoy (uds)", fact_hoy)
-    d3.metric("Última conciliación", ultima_conc)
+    cards = "".join([
+        '<div class="kpi"><div class="kpi-top"><span class="kpi-ic ic-teal">📦</span>'
+        f'<span class="kpi-lbl">Disponible</span></div><div class="kpi-num">{miles(disp_total)} '
+        f'<span class="kpi-u">u.</span></div><div class="kpi-sub">{skus_stock} SKUs en stock</div></div>',
+        '<div class="kpi"><div class="kpi-top"><span class="kpi-ic ic-amber">⚠️</span>'
+        f'<span class="kpi-lbl">Bajo mínimo</span></div><div class="kpi-num amber">{n_bajo} '
+        f'<span class="kpi-u">SKUs</span></div><div class="kpi-sub">{miles(u_riesgo)} u. en riesgo</div></div>',
+        '<div class="kpi"><div class="kpi-top"><span class="kpi-ic ic-blue">🧾</span>'
+        f'<span class="kpi-lbl">Facturado hoy</span></div><div class="kpi-num">{miles(fact_hoy)} '
+        f'<span class="kpi-u">u.</span></div><div class="kpi-sub">{n_fact} facturas</div></div>',
+        '<div class="kpi"><div class="kpi-top"><span class="kpi-ic ic-gray">📅</span>'
+        f'<span class="kpi-lbl">Última conciliación</span></div><div class="kpi-num date">{ultima_conc}</div>'
+        f'<div class="kpi-sub">{conc_sub}</div></div>',
+    ])
+    st.markdown(f'<div class="kpi-grid">{cards}</div>', unsafe_allow_html=True)
 
     if not bajo_minimo.empty:
         st.markdown("##### Requieren atención")
