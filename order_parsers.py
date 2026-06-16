@@ -12,24 +12,37 @@ UXC_MAP = {
     "AR003": 12,
     "AR004": 12,
     "AR007": 12,
-    "ACP001": 12, 
+    "ACP001": 12,
 }
+
+# Todos los SKU del catálogo (incluye sachets AR005/AR006 que no tienen UXC).
+KNOWN_SKUS = [
+    "ACP001", "AE001", "AE002", "AE003",
+    "AR001", "AR002", "AR003", "AR004",
+    "AR005", "AR006", "AR007",
+]
 
 def get_sku_from_text(text):
     text = text.upper()
-    
-    # 1. Prioridad Absoluta: Buscar mención directa de SKU
-    for sku in UXC_MAP.keys():
+
+    # 1. Prioridad Absoluta: Buscar mención directa de SKU (todo el catálogo)
+    for sku in KNOWN_SKUS:
         if sku in text: return sku
 
     # 2. Prioridad de Producto: El PACK (AE003) y TRATAMIENTO (AR003)
     if any(k in text for k in ["PACK", "X2", "SHAMP + ACONDIC", "SHA+ACO"]):
         return "AE003"
-    
+
     # El tratamiento en Favorita viene como "ANA TRATAMIENTO CAPILA" (sin la palabra REGENEXT)
     if "TRATAMIENTO" in text and ("CAPILA" in text or "CAPILAR" in text):
         return "AR003"
-        
+
+    # Sachets 18 ML (AR005 shampoo / AR006 acondicionador). Va antes de REGENEXT
+    # porque también son línea Regenext y si no caerían en AR001/AR002.
+    if "SACHET" in text or "18 ML" in text or "18ML" in text:
+        if "ACOND" in text: return "AR006"
+        if "SHAMPOO" in text or "SH " in text: return "AR005"
+
     # 3. Línea REGENEXT
     if "REGENEXT" in text:
         if "SHAMPOO" in text: return "AR001"

@@ -1,12 +1,12 @@
-SKU,Producto,Físico,Llegando a Bodega,Comprometido,Min_Alert,Nota_Alerta,ATP (Disponible),Estado Contífico,ATP,Estado
-ACP001,Toallitas húmedas x 100,60,0,0,10,,60,🟢 Facturable,60,Disponible
-AE001,Shampoo Ana Elixir Romero 370 ML.,800,600,0,10,,1400,🟢 Facturable,1400,Disponible
-AE002,Acondicionador Ana Elixir Romero 370 ML.,0,0,0,10,,0,🔴 Sin Stock,0,Agotado
-AE003,Pack SH + AC Ana Elixir Romero 370 ML.,0,0,0,10,,0,🔴 Sin Stock,0,Agotado
-AR001,Shampoo Ana Regenext 400 ML.,900,100,0,10,,1000,🟢 Facturable,1000,Disponible
-AR002,Acondicionador Ana Regenext 400 ML.,0,0,0,10,,0,🔴 Sin Stock,0,Agotado
-AR003,Tratamiento Capilar Ana Regenext 280 ML.,0,0,300,10,,0,🔴 Sin Stock,0,Agotado
-AR004,Crema de Peinar Ana Regenext 200 ML.,0,0,0,10,,0,🔴 Sin Stock,0,Agotado
-AR005,Shampoo Ana Regenext Sachet 18 ML.,0,0,400,10,,0,🔴 Sin Stock,-400,Agotado
-AR006,Acondicionador Ana Regenext Sachet 18 ML.,0,0,0,10,,0,🔴 Sin Stock,0,Agotado
-AR007,Shampoo Ana Baby 400 ML.,0,0,0,10,,0,🔴 Sin Stock,0,Agotado
+SKU,Producto,Físico,Llegando a Bodega,Comprometido,Min_Alert,Nota_Alerta,Costo,ATP,Estado
+ACP001,Toallitas húmedas x 100,0,0,0,10,,0.0,0,🔴 Agotado
+AE001,Shampoo Ana Elixir Romero 370 ML.,0,0,0,10,,0.0,0,🔴 Agotado
+AE002,Acondicionador Ana Elixir Romero 370 ML.,0,0,0,10,,0.0,0,🔴 Agotado
+AE003,Pack SH + AC Ana Elixir Romero 370 ML.,0,0,0,10,,0.0,0,🔴 Agotado
+AR001,Shampoo Ana Regenext 400 ML.,0,0,0,10,,0.0,0,🔴 Agotado
+AR002,Acondicionador Ana Regenext 400 ML.,0,0,0,10,,0.0,0,🔴 Agotado
+AR003,Tratamiento Capilar Ana Regenext 280 ML.,0,0,0,10,,0.0,0,🔴 Agotado
+AR004,Crema de Peinar Ana Regenext 200 ML.,0,0,0,10,,0.0,0,🔴 Agotado
+AR005,Shampoo Ana Regenext Sachet 18 ML.,0,0,0,10,,0.0,0,🔴 Agotado
+AR006,Acondicionador Ana Regenext Sachet 18 ML.,0,0,0,10,,0.0,0,🔴 Agotado
+AR007,Shampoo Ana Baby 400 ML.,0,0,0,10,,0.0,0,🔴 Agotado

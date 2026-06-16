@@ -1,37 +1,81 @@
 import streamlit as st
 import pandas as pd
-import os
-from datetime import datetime
-import io
 import re
 import base64
+import unicodedata
 import order_parsers  # Nuevo módulo para procesar PDFs de cadenas
+import storage
 
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(
-    page_title="Gestión de Operaciones | Inventario ATP",
+    page_title="Gestión de Operaciones | Inventario",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Estilo CSS optimizado para ambos modos (Luz/Oscuro) y corrección de pestañas
+# Estilo visual sobrio para uso operativo diario.
 st.markdown("""
     <style>
+    :root {
+        --surface: rgba(255, 255, 255, 0.76);
+        --line: rgba(15, 23, 42, 0.12);
+        --muted: rgba(71, 85, 105, 0.86);
+        --accent: #0f766e;
+    }
+    .block-container {
+        padding-top: 1.5rem;
+        padding-bottom: 2rem;
+    }
+    h1, h2, h3 {
+        letter-spacing: 0;
+    }
+    .app-hero {
+        border: 1px solid var(--line);
+        border-left: 5px solid var(--accent);
+        border-radius: 8px;
+        padding: 16px 18px;
+        margin-bottom: 14px;
+        background: var(--surface);
+    }
+    .app-hero h1 {
+        font-size: 1.65rem;
+        line-height: 1.2;
+        margin: 0 0 4px 0;
+    }
+    .app-hero p {
+        color: var(--muted);
+        margin: 0;
+        font-size: 0.95rem;
+    }
     .stTabs [data-baseweb="tab-list"] {
-        gap: 8px;
-        background-color: transparent;
+        gap: 4px;
+        border-bottom: 1px solid var(--line);
     }
     .stTabs [data-baseweb="tab"] {
-        padding: 8px 16px;
-        border-radius: 4px 4px 0px 0px;
+        padding: 8px 12px;
+        border-radius: 6px 6px 0 0;
+        font-size: 0.86rem;
     }
     .stTabs [aria-selected="true"] {
-        background-color: rgba(128, 128, 128, 0.1) !important;
+        background-color: rgba(15, 118, 110, 0.10) !important;
+        color: var(--accent) !important;
     }
     [data-testid="stMetric"] {
-        padding: 10px;
-        border: 1px solid rgba(128, 128, 128, 0.2);
-        border_radius: 8px;
+        padding: 14px 16px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--surface);
+    }
+    [data-testid="stMetricLabel"] {
+        color: var(--muted);
+    }
+    section[data-testid="stSidebar"] {
+        border-right: 1px solid var(--line);
+    }
+    div[data-testid="stDataFrame"], div[data-testid="stDataEditor"] {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        overflow: hidden;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -41,6 +85,7 @@ DB_FILE = "inventario_data.csv"
 HISTORY_FILE = "historial_movimientos.csv"
 CONCILIATION_HISTORY = "historial_conciliaciones.csv"
 SALES_HISTORY = "historial_ventas.csv"
+INVOICE_HISTORY = "historial_facturas.csv"
 
 CATALOGO = {
     "ACP001": "Toallitas húmedas x 100",
@@ -57,44 +102,30 @@ CATALOGO = {
 }
 
 def load_data():
-    if os.path.exists(DB_FILE):
-        df = pd.read_csv(DB_FILE)
-        if "Tránsito" in df.columns:
-            df.rename(columns={"Tránsito": "Llegando a Bodega"}, inplace=True)
-        # Asegurar que existan todas las columnas necesarias, incluyendo Costo
-        for col in ["Min_Alert", "Nota_Alerta", "Costo"]:
-            if col not in df.columns:
-                df[col] = 10 if col == "Min_Alert" else (0.0 if col == "Costo" else "")
-
-        # CORRECCIÓN: Asegurar que Nota_Alerta sea siempre texto y no tenga NaNs (evita error en data_editor)
-        df["Nota_Alerta"] = df["Nota_Alerta"].fillna("").astype(str)
-
-        df = df[["SKU", "Producto", "Físico", "Llegando a Bodega", "Comprometido", "Min_Alert", "Nota_Alerta", "Costo"]]
-        return df
-    else:
-        data = [{"SKU": k, "Producto": v, "Físico": 0, "Llegando a Bodega": 0, "Comprometido": 0, "Min_Alert": 10, "Nota_Alerta": "", "Costo": 0.0} for k, v in CATALOGO.items()]
-        return pd.DataFrame(data)
+    return storage.load_inventory(CATALOGO, DB_FILE)
 
 def save_data(df):
-    df.to_csv(DB_FILE, index=False)
+    storage.save_inventory(df, DB_FILE)
 
 def log_movement(sku, tipo, cantidad, nota=""):
-    entry = pd.DataFrame([{"Fecha": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "SKU": sku, "Tipo": tipo, "Cantidad": cantidad, "Nota": nota}])
-    entry.to_csv(HISTORY_FILE, mode='a', header=not os.path.exists(HISTORY_FILE), index=False)
+    storage.append_movement(sku, tipo, cantidad, nota, HISTORY_FILE)
 
 def log_conciliation(conciliation_df):
-    conciliation_df["Fecha_Conciliacion"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    conciliation_df.to_csv(CONCILIATION_HISTORY, mode='a', header=not os.path.exists(CONCILIATION_HISTORY), index=False)
+    storage.append_conciliation(conciliation_df, CONCILIATION_HISTORY)
 
 def log_sale(sku, cantidad, referencia=""):
-    entry = pd.DataFrame([{
-        "Fecha": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), 
-        "SKU": sku, 
-        "Producto": CATALOGO.get(sku, "Desconocido"),
-        "Cantidad": cantidad, 
-        "Referencia": referencia
-    }])
-    entry.to_csv(SALES_HISTORY, mode='a', header=not os.path.exists(SALES_HISTORY), index=False)
+    storage.append_sale(sku, CATALOGO.get(sku, "Desconocido"), cantidad, referencia, SALES_HISTORY)
+
+def log_invoice(items, numero_factura, cliente="", oc="", usuario="", nota=""):
+    storage.append_invoice_lines(items, numero_factura, cliente, oc, usuario, nota, INVOICE_HISTORY)
+
+def _norm_name(texto):
+    """Normaliza un nombre de producto para comparar: mayúsculas, sin tildes,
+    solo alfanumérico. Evita que 'ML.' vs 'ML' o una tilde rompan el match."""
+    s = str(texto).upper()
+    s = "".join(c for c in unicodedata.normalize("NFD", s) if unicodedata.category(c) != "Mn")
+    return re.sub(r"[^A-Z0-9]", "", s)
+
 
 def process_kardex(file):
     try:
@@ -111,17 +142,19 @@ def process_kardex(file):
 
 # --- LÓGICA DE NEGOCIO ---
 df = load_data()
-df["ATP"] = df["Físico"] + df["Llegando a Bodega"] - df["Comprometido"]
+df["Disponible"] = df["Físico"] - df["Reservado"]
 
 def calculate_status(row):
-    if row["ATP"] <= 0: return "🔴 Agotado"
-    if row["ATP"] <= row["Min_Alert"]: return "🟡 Crítico"
+    if row["Disponible"] <= 0: return "🔴 Agotado"
+    if row["Disponible"] <= row["Min_Alert"]: return "🟡 Crítico"
     return "🟢 Disponible"
 
 df["Estado"] = df.apply(calculate_status, axis=1)
 
 # --- SIDEBAR ---
 st.sidebar.title("Operaciones")
+st.sidebar.caption(f"Persistencia: {storage.storage_label()}")
+st.sidebar.caption(f"Hora local: {storage.now_display()} ({storage.timezone_label()})")
 st.sidebar.markdown("---")
 
 with st.sidebar:
@@ -130,17 +163,20 @@ with st.sidebar:
 
     if metodo == "Individual":
         st.subheader("Registrar Movimiento")
-        tipo = st.selectbox("Acción", ["Entrada de Fábrica", "Llegando a Bodega", "Venta / Orden", "Ajuste Directo"])
+        tipo = st.selectbox("Acción", ["Entrada de Fábrica", "Por Recibir", "Reservar", "Liberar Reserva", "Ajuste Directo"])
         prod_list = [f"{r['SKU']} | {r['Producto']}" for _, r in df.iterrows()]
         seleccion = st.selectbox("Producto", prod_list)
         sku = seleccion.split(" | ")[0]
         cantidad = st.number_input("Cantidad", step=1, value=0)
         nota = st.text_input("Nota / Referencia")
         
-        if st.button("Ejecutar Registro", use_container_width=True):
-            col = {"Entrada de Fábrica": "Físico", "Llegando a Bodega": "Llegando a Bodega", "Venta / Orden": "Comprometido", "Ajuste Directo": "Físico"}[tipo]
+        if st.button("Ejecutar Registro", width="stretch"):
+            col = {"Entrada de Fábrica": "Físico", "Por Recibir": "Por Recibir", "Reservar": "Reservado", "Liberar Reserva": "Reservado", "Ajuste Directo": "Físico"}[tipo]
             if tipo == "Ajuste Directo":
                 df.loc[df["SKU"] == sku, col] = cantidad
+            elif tipo == "Liberar Reserva":
+                actual = int(df.loc[df["SKU"] == sku, col].iloc[0])
+                df.loc[df["SKU"] == sku, col] = max(0, actual - cantidad)
             else:
                 df.loc[df["SKU"] == sku, col] += cantidad
             save_data(df)
@@ -151,15 +187,15 @@ with st.sidebar:
         st.subheader("Carga por Lote")
         st.caption("Formato: SKU, Cantidad")
         batch_input = st.text_area("Lista", height=150)
-        tipo_batch = st.selectbox("Acción para el lote", ["Entrada de Fábrica", "Llegando a Bodega", "Venta / Orden"])
-        if st.button("Procesar Lista", use_container_width=True):
+        tipo_batch = st.selectbox("Acción para el lote", ["Entrada de Fábrica", "Por Recibir", "Reservar"])
+        if st.button("Procesar Lista", width="stretch"):
             for line in batch_input.strip().split("\n"):
                 try:
                     parts = line.replace(" ", "").split(",")
                     if len(parts) == 2:
                         s, c = parts
                         if s.upper() in df["SKU"].values:
-                            col = {"Entrada de Fábrica": "Físico", "Llegando a Bodega": "Llegando a Bodega", "Venta / Orden": "Comprometido"}[tipo_batch]
+                            col = {"Entrada de Fábrica": "Físico", "Por Recibir": "Por Recibir", "Reservar": "Reservado"}[tipo_batch]
                             df.loc[df["SKU"] == s.upper(), col] += int(c)
                             log_movement(s.upper(), f"Lote: {tipo_batch}", int(c), "Carga manual")
                 except: continue
@@ -186,50 +222,61 @@ with st.sidebar:
             except Exception as e: st.error(f"Error: {e}")
 
 # --- CUERPO PRINCIPAL ---
-st.header("Gestión de Inventario Disponible")
+st.markdown(
+    f"""
+    <div class="app-hero">
+        <h1>Inventario Disponible</h1>
+        <p>Control operativo de stock físico, reservas, producto por recibir y facturación trazable. Actualizado: {storage.now_display()}</p>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
 
 m1, m2, m3, m4 = st.columns(4)
 m1.metric("Stock Físico", int(df["Físico"].sum()))
-m2.metric("Llegando a Bodega", int(df["Llegando a Bodega"].sum()))
-m3.metric("Comprometido", int(df["Comprometido"].sum()))
+m2.metric("Disponible", int(df["Disponible"].sum()))
+m3.metric("Reservado", int(df["Reservado"].sum()))
 m4.metric("Alertas", len(df[df["Estado"] != "🟢 Disponible"]))
 
-st.markdown("---")
-
-tab_inv, tab_fact, tab_ventas, tab_conc, tab_pre, tab_oc, tab_rep, tab_his, tab_est, tab_cfg = st.tabs(["INVENTARIO", "REGISTRAR FACTURACIÓN 🧾", "REPORTE DE VENTAS 📊", "CONCILIACIÓN 🔍", "PRE-VALIDACIÓN ✅", "ORDENES DE COMPRA 📄", "REPORTE DE COMPRA", "HISTORIAL", "ESTRATEGIA 📊", "CONFIGURACIÓN"])
+tab_inv, tab_fact, tab_ventas, tab_conc, tab_pre, tab_oc, tab_rep, tab_his, tab_est, tab_cfg = st.tabs(["Inventario", "Facturación", "Ventas", "Conciliación", "Pre-validación", "Órdenes", "Compras", "Historial", "Estrategia", "Config."])
 
 with tab_inv:
     st.subheader("Control de Inventario")
     # Tabla editable para cambios rápidos
     df_editable = st.data_editor(
-        df[["SKU", "Producto", "Físico", "Llegando a Bodega", "Comprometido", "ATP", "Estado", "Nota_Alerta"]],
+        df[["SKU", "Producto", "Físico", "Reservado", "Disponible", "Por Recibir", "Estado", "Nota_Alerta"]],
         column_config={
             "SKU": st.column_config.TextColumn("SKU", disabled=True),
             "Producto": st.column_config.TextColumn("Producto", disabled=True),
-            "ATP": st.column_config.NumberColumn("Disponible (ATP)", disabled=True, format="%d"),
+            "Disponible": st.column_config.NumberColumn("Disponible", disabled=True, format="%d"),
             "Estado": st.column_config.TextColumn("Estado", disabled=True),
             "Físico": st.column_config.NumberColumn("Físico", format="%d"),
-            "Llegando a Bodega": st.column_config.NumberColumn("En Tránsito", format="%d"),
-            "Comprometido": st.column_config.NumberColumn("Comprometido", format="%d"),
+            "Reservado": st.column_config.NumberColumn("Reservado", format="%d"),
+            "Por Recibir": st.column_config.NumberColumn("Por Recibir", format="%d"),
             "Nota_Alerta": st.column_config.TextColumn("Observaciones")
         },
-        use_container_width=True,
+        width="stretch",
         hide_index=True,
         key="editor_inventario"
     )
     
-    if st.button("💾 Guardar Cambios en Inventario", use_container_width=True):
+    if st.button("💾 Guardar Cambios en Inventario", width="stretch"):
         # Actualizar el dataframe original con los cambios del editor
         for index, row in df_editable.iterrows():
             sku = row["SKU"]
-            df.loc[df["SKU"] == sku, ["Físico", "Llegando a Bodega", "Comprometido", "Nota_Alerta"]] = [row["Físico"], row["Llegando a Bodega"], row["Comprometido"], row["Nota_Alerta"]]
+            df.loc[df["SKU"] == sku, ["Físico", "Reservado", "Por Recibir", "Nota_Alerta"]] = [row["Físico"], row["Reservado"], row["Por Recibir"], row["Nota_Alerta"]]
         save_data(df)
         st.success("✅ Inventario actualizado correctamente.")
         st.rerun()
 
 with tab_fact:
-    st.subheader("Registro Masivo de Facturación")
-    st.info("Puedes pegar texto o subir múltiples PDFs de facturas. El sistema consolidará todo antes de descontar.")
+    st.subheader("Registro de Facturación")
+    st.info("La factura descuenta stock físico y queda registrada por número para trazabilidad y anulación.")
+    meta1, meta2, meta3, meta4 = st.columns(4)
+    numero_factura = meta1.text_input("Número de factura")
+    cliente_factura = meta2.text_input("Cliente / Cadena")
+    oc_factura = meta3.text_input("OC relacionada")
+    usuario_factura = meta4.text_input("Usuario")
     
     col_text, col_pdf = st.columns(2)
     
@@ -241,7 +288,7 @@ with tab_fact:
         st.markdown("### 📄 Por PDF")
         fact_files = st.file_uploader("Subir Facturas (PDF)", type=["pdf"], accept_multiple_files=True)
 
-    if st.button("🔍 Analizar y Consolidar Movimiento", use_container_width=True):
+    if st.button("🔍 Analizar y Consolidar Movimiento", width="stretch"):
         consolidado = {}
         processed_logs = []
         errors = []
@@ -286,26 +333,102 @@ with tab_fact:
         st.markdown("### 📋 Resumen a Descontar")
         res_data = []
         for k, v in st.session_state["consolidado_fact"].items():
-            res_data.append({"SKU": k, "Producto": CATALOGO.get(k, "Desconocido"), "Total": v})
+            disponible = int(df.loc[df["SKU"] == k, "Disponible"].iloc[0]) if k in df["SKU"].values else 0
+            res_data.append({
+                "SKU": k,
+                "Producto": CATALOGO.get(k, "Desconocido"),
+                "Total": v,
+                "Disponible": disponible,
+                "Alcanza": "SÍ" if disponible >= v else "NO",
+            })
         resumen_df = pd.DataFrame(res_data)
-        st.table(resumen_df)
+        st.dataframe(resumen_df, width="stretch", hide_index=True)
         
-        if st.button("✅ CONFIRMAR Y RESTAR DE STOCK", type="primary", use_container_width=True):
+        if st.button("✅ CONFIRMAR FACTURA Y RESTAR STOCK", type="primary", width="stretch"):
+            if not numero_factura.strip():
+                st.error("El número de factura es obligatorio.")
+                st.stop()
+            if not usuario_factura.strip():
+                st.error("El usuario es obligatorio para trazabilidad.")
+                st.stop()
+            if (resumen_df["Alcanza"] == "NO").any():
+                st.error("No se puede facturar: hay productos sin stock disponible suficiente.")
+                st.stop()
+
+            invoice_items = []
+            deltas = {}
             for sku, qty in st.session_state["consolidado_fact"].items():
-                df.loc[df["SKU"] == sku, "Físico"] -= qty
-                log_movement(sku, "FACTURACIÓN CONSOLIDADA", -qty, "Procesado múltiple")
-                log_sale(sku, qty, "Carga Consolidada")
-            
-            save_data(df)
-            st.success("🎉 Stock actualizado y ventas registradas.")
+                deltas[sku] = deltas.get(sku, 0) - qty
+                referencia = f"Factura {numero_factura} | Cliente: {cliente_factura or 'S/N'} | OC: {oc_factura or 'S/N'}"
+                log_movement(sku, "FACTURA", -qty, referencia)
+                log_sale(sku, qty, referencia)
+                invoice_items.append({"SKU": sku, "Producto": CATALOGO.get(sku, "Desconocido"), "Cantidad": qty})
+
+            storage.adjust_stock(deltas, DB_FILE)
+            log_invoice(invoice_items, numero_factura.strip(), cliente_factura.strip(), oc_factura.strip(), usuario_factura.strip(), "Factura registrada desde pestaña Facturación")
+            st.success("🎉 Factura registrada, stock actualizado y ventas guardadas.")
             del st.session_state["consolidado_fact"]
             st.rerun()
 
 with tab_ventas:
     st.subheader("Análisis de Ventas (Facturado)")
-    if os.path.exists(SALES_HISTORY):
-        s_df = pd.read_csv(SALES_HISTORY)
-        s_df["Fecha"] = pd.to_datetime(s_df["Fecha"])
+    invoices_df = storage.read_invoices(INVOICE_HISTORY)
+    if not invoices_df.empty:
+        st.markdown("### Facturas")
+        invoices_display = invoices_df.copy()
+        invoices_display["Fecha_Orden"] = pd.to_datetime(invoices_display["Fecha"], errors="coerce")
+        invoices_display = invoices_display.sort_values(by="Fecha_Orden", ascending=False).drop(columns=["Fecha_Orden"])
+        invoices_display["Fecha"] = storage.format_datetime_series(invoices_display["Fecha"])
+        st.dataframe(invoices_display, width="stretch", hide_index=True)
+
+        active_invoices = invoices_df[invoices_df["Estado"] == "Activa"].copy()
+        if not active_invoices.empty:
+            st.markdown("### Anular Factura")
+            invoice_options = (
+                active_invoices[["NumeroFactura", "Cliente", "OC"]]
+                .drop_duplicates()
+                .assign(
+                    label=lambda x: x["NumeroFactura"].astype(str)
+                    + " | "
+                    + x["Cliente"].fillna("").astype(str)
+                    + " | OC: "
+                    + x["OC"].fillna("").astype(str)
+                )
+            )
+            factura_anular = st.selectbox("Factura activa", invoice_options["label"].tolist())
+            numero_anular = factura_anular.split(" | ")[0]
+            lineas_anular = active_invoices[active_invoices["NumeroFactura"].astype(str) == numero_anular]
+            st.dataframe(lineas_anular[["SKU", "Producto", "Cantidad", "Cliente", "OC", "Usuario"]], width="stretch", hide_index=True)
+
+            anul_col1, anul_col2, anul_col3 = st.columns(3)
+            usuario_anula = anul_col1.text_input("Usuario que anula")
+            motivo_anula = anul_col2.text_input("Motivo")
+            confirma_anula = anul_col3.text_input("Escribe ANULAR")
+
+            if st.button("Anular factura y devolver stock", type="primary", width="stretch"):
+                if confirma_anula != "ANULAR":
+                    st.error("Para anular debes escribir ANULAR.")
+                    st.stop()
+                if not usuario_anula.strip() or not motivo_anula.strip():
+                    st.error("Usuario y motivo son obligatorios.")
+                    st.stop()
+
+                deltas = {}
+                for _, row in lineas_anular.iterrows():
+                    qty = int(row["Cantidad"])
+                    sku = row["SKU"]
+                    deltas[sku] = deltas.get(sku, 0) + qty
+                    log_movement(sku, "ANULACIÓN FACTURA", qty, f"Factura {numero_anular}: {motivo_anula}")
+                    log_sale(sku, -qty, f"Anulación factura {numero_anular}: {motivo_anula}")
+
+                storage.adjust_stock(deltas, DB_FILE)
+                updated = storage.mark_invoice_cancelled(numero_anular, usuario_anula.strip(), motivo_anula.strip(), INVOICE_HISTORY)
+                st.success(f"Factura {numero_anular} anulada. Líneas actualizadas: {updated}.")
+                st.rerun()
+
+    s_df = storage.read_history("sales", SALES_HISTORY)
+    if not s_df.empty:
+        s_df["Fecha_Orden"] = pd.to_datetime(s_df["Fecha"], errors="coerce")
         
         col_v1, col_v2 = st.columns([1, 2])
         
@@ -319,7 +442,9 @@ with tab_ventas:
             st.bar_chart(top_v)
             
         st.markdown("### Historial Detallado")
-        st.dataframe(s_df.sort_values(by="Fecha", ascending=False), use_container_width=True, hide_index=True)
+        s_display = s_df.sort_values(by="Fecha_Orden", ascending=False).drop(columns=["Fecha_Orden"])
+        s_display["Fecha"] = storage.format_datetime_series(s_display["Fecha"])
+        st.dataframe(s_display, width="stretch", hide_index=True)
     else:
         st.info("Aún no hay ventas registradas.")
 
@@ -331,8 +456,12 @@ with tab_conc:
         if resumen_k:
             prod_nom = resumen_k["producto"]
             stock_contifico = resumen_k["stock_teorico"]
-            df['Producto_Norm'] = df['Producto'].str.upper().str.strip()
-            match = df[df['Producto_Norm'] == prod_nom.upper()]
+            objetivo = _norm_name(prod_nom)
+            df['Producto_Norm'] = df['Producto'].apply(_norm_name)
+            match = df[df['Producto_Norm'] == objetivo]
+            if match.empty and objetivo:
+                # Respaldo: coincidencia parcial en cualquier sentido
+                match = df[df['Producto_Norm'].apply(lambda n: bool(n) and (n in objetivo or objetivo in n))]
             if not match.empty:
                 sku_detectado = match.iloc[0]['SKU']
                 nombre_app = match.iloc[0]['Producto']
@@ -347,8 +476,7 @@ with tab_conc:
                 elif abs(diferencia) <= 5: st.warning(f"🟡 Desfase: {diferencia}")
                 else: st.error(f"🔴 Descuadrado: {diferencia}")
                 if st.button("Confirmar y Actualizar"):
-                    df.loc[df["SKU"] == sku_detectado, "Físico"] = nuevo_fisico
-                    save_data(df.drop(columns=['Producto_Norm']))
+                    storage.set_fisico(sku_detectado, nuevo_fisico, DB_FILE)
                     log_df = pd.DataFrame([{"SKU": sku_detectado, "Producto": nombre_app, "Stock_Contifico": stock_contifico, "Fisico_Real": nuevo_fisico, "Diferencia": diferencia}])
                     log_conciliation(log_df)
                     log_movement(sku_detectado, "Conciliación", nuevo_fisico, f"Kardex: {kardex_file.name}")
@@ -357,15 +485,15 @@ with tab_conc:
 
 with tab_pre:
     st.subheader("Pre-validación de Facturas")
-    pre_df = df[["SKU", "Producto", "ATP"]].copy()
+    pre_df = df[["SKU", "Producto", "Disponible"]].copy()
     pre_df["Cantidad a Facturar"] = 0
-    edited_pre = st.data_editor(pre_df, column_config={"ATP": st.column_config.NumberColumn("Disponible", disabled=True)}, hide_index=True, use_container_width=True)
+    edited_pre = st.data_editor(pre_df, column_config={"Disponible": st.column_config.NumberColumn("Disponible", disabled=True)}, hide_index=True, width="stretch")
     items_pedido = edited_pre[edited_pre["Cantidad a Facturar"] > 0].copy()
     if not items_pedido.empty:
-        items_pedido["Alcanza"] = items_pedido.apply(lambda r: "🟢 SÍ" if r["ATP"] >= r["Cantidad a Facturar"] else "🔴 NO", axis=1)
+        items_pedido["Alcanza"] = items_pedido.apply(lambda r: "🟢 SÍ" if r["Disponible"] >= r["Cantidad a Facturar"] else "🔴 NO", axis=1)
         if all(items_pedido["Alcanza"] == "🟢 SÍ"): st.success("### ✅ PUEDES FACTURAR")
         else: st.error("### ❌ NO FACTURAR")
-        st.dataframe(items_pedido[["SKU", "Producto", "ATP", "Cantidad a Facturar", "Alcanza"]], use_container_width=True, hide_index=True)
+        st.dataframe(items_pedido[["SKU", "Producto", "Disponible", "Cantidad a Facturar", "Alcanza"]], width="stretch", hide_index=True)
 
 with tab_oc:
     st.subheader("Analizador de Órdenes de Compra (PDF)")
@@ -389,17 +517,21 @@ with tab_oc:
             
             if items_oc:
                 st.success(f"✅ Detectado: **{cadena}**")
+                oc_meta1, oc_meta2, oc_meta3 = st.columns(3)
+                numero_factura_oc = oc_meta1.text_input("Número de factura", key="oc_factura_numero")
+                usuario_oc = oc_meta2.text_input("Usuario", key="oc_usuario")
+                oc_referencia = oc_meta3.text_input("OC / Referencia", key="oc_referencia")
                 
                 oc_df = pd.DataFrame(items_oc)
                 oc_df['SKU'] = oc_df['SKU'].str.upper().str.strip()
                 
                 # Unir con el inventario
-                validation_df = oc_df.merge(df[["SKU", "Producto", "ATP", "Físico"]], on="SKU", how="left")
+                validation_df = oc_df.merge(df[["SKU", "Producto", "Disponible", "Físico"]], on="SKU", how="left")
                 
                 # Calcular sugerencia de despacho
                 def suggest_qty(row):
-                    if pd.isna(row["ATP"]) or row["ATP"] <= 0: return 0
-                    return min(int(row["Cantidad"]), int(row["ATP"]))
+                    if pd.isna(row["Disponible"]) or row["Disponible"] <= 0: return 0
+                    return min(int(row["Cantidad"]), int(row["Disponible"]))
 
                 validation_df["Sugerencia"] = validation_df.apply(suggest_qty, axis=1)
                 validation_df["Estado_V"] = validation_df.apply(
@@ -410,33 +542,46 @@ with tab_oc:
                 # Editor de despacho
                 st.write("Ajusta las cantidades si es necesario antes de confirmar:")
                 edited_oc = st.data_editor(
-                    validation_df[["Estado_V", "Desc_Original", "Producto", "Cantidad", "ATP", "Sugerencia", "SKU"]],
+                    validation_df[["Estado_V", "Desc_Original", "Producto", "Cantidad", "Disponible", "Sugerencia", "SKU"]],
                     column_config={
                         "Estado_V": st.column_config.TextColumn(" ", width="small"),
                         "Desc_Original": st.column_config.TextColumn("OC Original (Izquierda)", disabled=True),
                         "Producto": st.column_config.TextColumn("Sistema (Derecha)", disabled=True),
                         "Cantidad": st.column_config.NumberColumn("Pedido OC", disabled=True),
-                        "ATP": st.column_config.NumberColumn("ATP", disabled=True),
+                        "Disponible": st.column_config.NumberColumn("Disponible", disabled=True),
                         "Sugerencia": st.column_config.NumberColumn("A Despachar", format="%d"),
                         "SKU": st.column_config.TextColumn("SKU", disabled=True)
                     },
-                    use_container_width=True,
+                    width="stretch",
                     hide_index=True,
                     key="editor_oc"
                 )
                 
-                if st.button("🚀 Confirmar Facturación y Restar de Físico", use_container_width=True, type="primary"):
+                if st.button("🚀 Confirmar Facturación y Restar de Físico", width="stretch", type="primary"):
+                    if not numero_factura_oc.strip():
+                        st.error("El número de factura es obligatorio.")
+                        st.stop()
+                    if not usuario_oc.strip():
+                        st.error("El usuario es obligatorio para trazabilidad.")
+                        st.stop()
+
                     items_processed = 0
+                    invoice_items = []
+                    deltas = {}
                     for _, row in edited_oc.iterrows():
                         if row["Sugerencia"] > 0:
                             qty = int(row["Sugerencia"])
                             sku = row["SKU"]
-                            df.loc[df["SKU"] == sku, "Físico"] -= qty
-                            log_movement(sku, f"VENTA OC: {cadena}", -qty, f"OC Original: {row['Desc_Original'][:40]}")
+                            deltas[sku] = deltas.get(sku, 0) - qty
+                            referencia = f"Factura {numero_factura_oc} | Cliente: {cadena} | OC: {oc_referencia or 'S/N'}"
+                            log_movement(sku, f"VENTA OC: {cadena}", -qty, referencia)
+                            log_sale(sku, qty, referencia)
+                            invoice_items.append({"SKU": sku, "Producto": row["Producto"], "Cantidad": qty})
                             items_processed += 1
-                    
+
                     if items_processed > 0:
-                        save_data(df)
+                        storage.adjust_stock(deltas, DB_FILE)
+                        log_invoice(invoice_items, numero_factura_oc.strip(), cadena, oc_referencia.strip(), usuario_oc.strip(), "Factura registrada desde OC")
                         st.success(f"✅ Se han facturado {items_processed} productos. El stock físico ha sido actualizado.")
                         st.rerun()
             else:
@@ -446,21 +591,25 @@ with tab_rep:
     st.subheader("Necesidades de Reabastecimiento")
     rep_df = df[df["Estado"] != "🟢 Disponible"].copy()
     if not rep_df.empty:
-        rep_df["Sugerencia"] = (rep_df["Min_Alert"] * 2) - rep_df["ATP"]
-        st.table(rep_df[["SKU", "Producto", "ATP", "Estado", "Sugerencia"]])
+        rep_df["Sugerencia"] = (rep_df["Min_Alert"] * 2) - rep_df["Disponible"]
+        st.table(rep_df[["SKU", "Producto", "Disponible", "Estado", "Sugerencia"]])
     else: st.info("Todo optimizado.")
 
 with tab_his:
     st.subheader("Análisis de Stock")
     st.bar_chart(df.set_index("Producto")["Físico"])
     st.markdown("---")
-    if os.path.exists(HISTORY_FILE):
-        st.dataframe(pd.read_csv(HISTORY_FILE).sort_values(by="Fecha", ascending=False), use_container_width=True, hide_index=True)
+    h_df = storage.read_history("movements", HISTORY_FILE)
+    if not h_df.empty:
+        h_df["Fecha_Orden"] = pd.to_datetime(h_df["Fecha"], errors="coerce")
+        h_display = h_df.sort_values(by="Fecha_Orden", ascending=False).drop(columns=["Fecha_Orden"])
+        h_display["Fecha"] = storage.format_datetime_series(h_display["Fecha"])
+        st.dataframe(h_display, width="stretch", hide_index=True)
 
 with tab_est:
     st.subheader("Reporte Ejecutivo y Estrategia")
-    if os.path.exists(CONCILIATION_HISTORY):
-        c_df = pd.read_csv(CONCILIATION_HISTORY)
+    c_df = storage.read_history("conciliations", CONCILIATION_HISTORY)
+    if not c_df.empty:
         c_df = c_df.merge(df[["SKU", "Costo"]], on="SKU", how="left")
         c_df["Valor_Diferencia"] = c_df["Diferencia"] * c_df["Costo"]
         total_perdida = c_df[c_df["Diferencia"] < 0]["Valor_Diferencia"].sum()
@@ -471,7 +620,10 @@ with tab_est:
         st.markdown("### SKUs con más descuadres")
         if not c_df[c_df["Diferencia"] != 0].empty:
             st.bar_chart(c_df[c_df["Diferencia"] != 0]["Producto"].value_counts().head(5))
-        st.dataframe(c_df.sort_values(by="Fecha_Conciliacion", ascending=False), use_container_width=True, hide_index=True)
+        c_df["Fecha_Orden"] = pd.to_datetime(c_df["Fecha_Conciliacion"], errors="coerce")
+        c_display = c_df.sort_values(by="Fecha_Orden", ascending=False).drop(columns=["Fecha_Orden"])
+        c_display["Fecha_Conciliacion"] = storage.format_datetime_series(c_display["Fecha_Conciliacion"])
+        st.dataframe(c_display, width="stretch", hide_index=True)
     else: st.info("Sin datos estratégicos aún.")
 
 with tab_cfg:
@@ -487,10 +639,10 @@ with tab_cfg:
             "Costo": st.column_config.NumberColumn("Costo ($)", format="$ %.2f"),
             "Min_Alert": st.column_config.NumberColumn("Alerta Mín.")
         }, 
-        use_container_width=True, 
+        width="stretch", 
         hide_index=True
     )
-    if st.button("💾 Guardar Parámetros", use_container_width=True):
+    if st.button("💾 Guardar Parámetros", width="stretch"):
         # Actualizar df con los datos editados
         for _, row in cfg_edit.iterrows():
             df.loc[df["SKU"] == row["SKU"], ["Min_Alert", "Costo", "Nota_Alerta"]] = [row["Min_Alert"], row["Costo"], row["Nota_Alerta"]]
@@ -509,10 +661,10 @@ with tab_cfg:
         st.markdown("**Limpieza Individual**")
         prod_to_reset = st.selectbox("Seleccionar producto para limpiar", [f"{r['SKU']} | {r['Producto']}" for _, r in df.iterrows()], key="reset_individual")
         confirm_ind = st.checkbox("Confirmar limpieza individual", key="check_ind")
-        if st.button("🧹 Limpiar Cantidades Producto", type="primary", use_container_width=True):
+        if st.button("🧹 Limpiar Cantidades Producto", type="primary", width="stretch"):
             if confirm_ind:
                 sku_reset = prod_to_reset.split(" | ")[0]
-                df.loc[df["SKU"] == sku_reset, ["Físico", "Llegando a Bodega", "Comprometido"]] = 0
+                df.loc[df["SKU"] == sku_reset, ["Físico", "Por Recibir", "Reservado"]] = 0
                 save_data(df)
                 log_movement(sku_reset, "RESET INDIVIDUAL", 0, "Cantidades puestas a 0")
                 st.success(f"✅ Cantidades de {sku_reset} reiniciadas.")
@@ -522,16 +674,19 @@ with tab_cfg:
 
     with col_reset2:
         st.markdown("**Reinicio Total**")
-        st.write("Esto pondrá a 0 todas las cantidades de TODOS los productos.")
-        confirm_all = st.checkbox("⚠️ CONFIRMAR REINICIO TOTAL", key="check_all")
-        if st.button("🔥 REINICIAR TODO EL INVENTARIO", type="secondary", use_container_width=True):
-            if confirm_all:
+        st.write("Esto pondrá a 0 las cantidades de TODOS los productos. Acción irreversible.")
+        usuario_reset = st.text_input("Usuario que reinicia", key="reset_usuario")
+        confirma_reset = st.text_input("Escribe REINICIAR para habilitar", key="reset_texto")
+        if st.button("🔥 REINICIAR TODO EL INVENTARIO", type="secondary", width="stretch"):
+            if confirma_reset != "REINICIAR":
+                st.error("Para reiniciar todo debes escribir exactamente REINICIAR.")
+            elif not usuario_reset.strip():
+                st.error("El usuario es obligatorio para registrar quién reinició.")
+            else:
                 df["Físico"] = 0
-                df["Llegando a Bodega"] = 0
-                df["Comprometido"] = 0
+                df["Por Recibir"] = 0
+                df["Reservado"] = 0
                 save_data(df)
-                log_movement("SISTEMA", "RESET TOTAL", 0, "Todo el inventario puesto a 0")
+                log_movement("SISTEMA", "RESET TOTAL", 0, f"Inventario reiniciado por {usuario_reset.strip()}")
                 st.success("✅ Todo el inventario ha sido reiniciado.")
                 st.rerun()
-            else:
-                st.error("Acción cancelada. Debes confirmar con el checkbox.")
