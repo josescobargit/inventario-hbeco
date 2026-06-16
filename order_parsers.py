@@ -346,7 +346,12 @@ def parse_bodega_stock_image(file):
         codigo_bodega = m.group(1)
         inicio = m.end()
         fin = matches[i + 1].start() if i + 1 < len(matches) else len(texto_plano)
-        tramo = texto_plano[inicio:fin].strip()
+        # El OCR suele leer las líneas de la tabla como basura ("|", "[", "—",
+        # "¡"...), a veces pegada justo entre el UM y el Saldo. Se reemplaza
+        # por espacios en toda la fila (no solo en los bordes), si no el
+        # patrón de "últimos dos números" falla aunque el número sí esté ahí.
+        tramo = re.sub(r'[|\[\]—¡!]+', ' ', texto_plano[inicio:fin])
+        tramo = re.sub(r'\s+', ' ', tramo).strip()
 
         descripcion, um, saldo = tramo, None, None
         tail = _BODEGA_TAIL_NUMS.match(tramo)
