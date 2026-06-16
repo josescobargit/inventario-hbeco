@@ -784,20 +784,22 @@ elif zona == "📊 Consultar":
 
     with tab_inv:
         st.subheader("Control de Inventario")
-        # Tabla editable para cambios rápidos
+        st.caption("Cada producto muestra el total en unidades y, al lado, su equivalencia en cajas + unidades sueltas (según las unidades por caja de cada SKU).")
+        # Tabla editable para cambios rápidos. Se muestran SIEMPRE las dos
+        # vistas: unidades (columnas editables) y cajas + sueltas (texto).
         df_editable = st.data_editor(
-            df[["SKU", "Producto", "UXC", "Físico", "Físico C/U", "Reservado", "Disponible", "Disponible C/U", "Por Recibir", "Estado", "Nota_Alerta"]],
+            df[["SKU", "Producto", "UXC", "Físico", "Físico C/U", "Disponible", "Disponible C/U", "Reservado", "Por Recibir", "Estado", "Nota_Alerta"]],
             column_config={
                 "SKU": st.column_config.TextColumn("SKU", disabled=True),
                 "Producto": st.column_config.TextColumn("Producto", disabled=True),
-                "UXC": st.column_config.NumberColumn("UXC", disabled=True, format="%d"),
-                "Disponible": st.column_config.NumberColumn("Disponible", disabled=True, format="%d"),
-                "Disponible C/U": st.column_config.TextColumn("Disponible cajas/u.", disabled=True),
+                "UXC": st.column_config.NumberColumn("U × caja", disabled=True, format="%d", help="Unidades por caja de este SKU."),
+                "Físico": st.column_config.NumberColumn("Físico (unid.)", format="%d", help="Stock físico total en unidades."),
+                "Físico C/U": st.column_config.TextColumn("Físico (cajas + sueltas)", disabled=True),
+                "Disponible": st.column_config.NumberColumn("Disponible (unid.)", disabled=True, format="%d"),
+                "Disponible C/U": st.column_config.TextColumn("Disponible (cajas + sueltas)", disabled=True),
+                "Reservado": st.column_config.NumberColumn("Reservado (unid.)", format="%d"),
+                "Por Recibir": st.column_config.NumberColumn("Por Recibir (unid.)", format="%d"),
                 "Estado": st.column_config.TextColumn("Estado", disabled=True),
-                "Físico": st.column_config.NumberColumn("Físico", format="%d"),
-                "Físico C/U": st.column_config.TextColumn("Físico cajas/u.", disabled=True),
-                "Reservado": st.column_config.NumberColumn("Reservado", format="%d"),
-                "Por Recibir": st.column_config.NumberColumn("Por Recibir", format="%d"),
                 "Nota_Alerta": st.column_config.TextColumn("Observaciones")
             },
             width="stretch",

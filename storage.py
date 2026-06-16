@@ -96,9 +96,10 @@ def cajas_y_sueltas(unidades, uxc):
 
 
 def format_cajas_sueltas(unidades, uxc):
+    """Muestra siempre cajas Y unidades sueltas, aunque las sueltas sean 0,
+    para no perder de vista las unidades cuando la cantidad es múltiplo
+    exacto de la caja."""
     cajas, sueltas = cajas_y_sueltas(unidades, uxc)
-    if sueltas == 0:
-        return f"{cajas} caja(s)"
     return f"{cajas} caja(s) + {sueltas} u."
 
 
