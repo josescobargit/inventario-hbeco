@@ -227,14 +227,21 @@ with st.sidebar:
         bodega_img = st.file_uploader("Imagen del reporte (PNG/JPG)", type=["png", "jpg", "jpeg"], key="bodega_img")
 
         if bodega_img is not None and st.button("🔍 Leer imagen", width="stretch"):
-            items, no_reconocidos = order_parsers.parse_bodega_stock_image(bodega_img)
+            items, no_reconocidos, texto_ocr = order_parsers.parse_bodega_stock_image(bodega_img)
+            st.session_state["bodega_ocr_texto"] = texto_ocr
             if items is None:
                 st.error(no_reconocidos)
             elif not items and not no_reconocidos:
-                st.warning("No se detectaron filas reconocibles. Prueba con una imagen más nítida, recortada solo a la tabla.")
+                st.warning("No se detectaron filas reconocibles. Revisa el texto que detectó el OCR abajo, o prueba con una imagen más nítida recortada solo a la tabla.")
+                st.session_state.pop("bodega_items", None)
+                st.session_state.pop("bodega_no_reconocidos", None)
             else:
                 st.session_state["bodega_items"] = items
                 st.session_state["bodega_no_reconocidos"] = no_reconocidos
+
+        if st.session_state.get("bodega_ocr_texto"):
+            with st.expander("🔧 Texto crudo detectado por el OCR (depuración)"):
+                st.text(st.session_state["bodega_ocr_texto"])
 
         if st.session_state.get("bodega_items"):
             items = st.session_state["bodega_items"]

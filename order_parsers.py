@@ -218,8 +218,11 @@ WAREHOUSE_SKU_MAP = {
     "IECPELX0024": "AE003",
 }
 
-# Fila de cabecera tipo "SKU DESCRIPCIÓN UM SALDO" que el OCR puede devolver.
-_BODEGA_ROW = re.compile(r'^([A-Z]{2,}\d{3,})\s+(.+?)\s+(\d{1,5})\s+([\d.,]+)$')
+# Ancla de inicio de fila: el código de SKU de bodega (ej. IECPANA0001).
+_BODEGA_SKU_CODE = re.compile(r'\b([A-Z]{2,}\d{3,})\b')
+# Dentro del tramo de texto de una fila, los últimos dos números son UM y Saldo
+# (la descripción puede traer números intermedios, ej. "400 ML", "18 ML").
+_BODEGA_TAIL_NUMS = re.compile(r'^(.*?)(\d{1,4})\s+([\d.,]+)\s*$')
 
 
 def map_warehouse_sku(codigo_bodega, descripcion):
@@ -233,8 +236,12 @@ def parse_bodega_stock_image(file):
     """Lee una captura (foto/screenshot) del reporte de bodega vía OCR.
 
     Espera columnas tipo: SKU | DESCRIPCIÓN | UM | SALDO, donde SALDO ya
-    viene en unidades totales (no cajas). Devuelve (items, no_reconocidos)
-    o (None, mensaje_error) si falta la dependencia de OCR.
+    viene en unidades totales (no cajas). No depende de que cada fila salga
+    en una sola línea limpia: ancla cada fila por el código de SKU de bodega
+    y toma todo el texto hasta el siguiente código como esa fila.
+
+    Devuelve (items, no_reconocidos, texto_ocr_crudo) o
+    (None, mensaje_error, "") si falta la dependencia de OCR.
     """
     try:
         import pytesseract
@@ -243,7 +250,7 @@ def parse_bodega_stock_image(file):
         return None, (
             "Falta el soporte de OCR (pytesseract/Pillow/tesseract-ocr). "
             "Revisa requirements.txt y packages.txt del proyecto."
-        )
+        ), ""
 
     image = Image.open(file)
     try:
@@ -251,16 +258,23 @@ def parse_bodega_stock_image(file):
     except Exception:
         texto = pytesseract.image_to_string(image, config="--psm 6")
 
+    # Colapsa saltos de línea/espacios para no depender de cómo el OCR
+    # partió cada fila.
+    texto_plano = re.sub(r'\s+', ' ', texto.upper()).strip()
+
+    matches = list(_BODEGA_SKU_CODE.finditer(texto_plano))
     items = []
     no_reconocidos = []
-    for linea in texto.split("\n"):
-        linea = linea.strip()
-        if not linea:
+    for i, m in enumerate(matches):
+        codigo_bodega = m.group(1)
+        inicio = m.end()
+        fin = matches[i + 1].start() if i + 1 < len(matches) else len(texto_plano)
+        tramo = texto_plano[inicio:fin].strip()
+
+        tail = _BODEGA_TAIL_NUMS.match(tramo)
+        if not tail:
             continue
-        match = _BODEGA_ROW.match(linea.upper())
-        if not match:
-            continue
-        codigo_bodega, descripcion, um_str, saldo_str = match.groups()
+        descripcion, um_str, saldo_str = tail.groups()
         try:
             um = int(um_str)
             saldo = int(float(saldo_str.replace(",", "")))
@@ -277,4 +291,4 @@ def parse_bodega_stock_image(file):
         }
         (items if sku_app else no_reconocidos).append(item)
 
-    return items, no_reconocidos
+    return items, no_reconocidos, texto
