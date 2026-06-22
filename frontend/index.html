@@ -1,0 +1,343 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Inventario Operativo</title>
+    <link rel="stylesheet" href="./css/styles.css?v=2" />
+  </head>
+  <body>
+    <header class="app-header">
+      <div>
+        <p class="eyebrow">HOME BEAUTY ESSENCES</p>
+        <h1>Inventario operativo</h1>
+      </div>
+      <div class="toolbar">
+        <span id="current-user-label" class="user-label" hidden></span>
+        <button id="logout-button" class="secondary-button" type="button" hidden>Cerrar sesion</button>
+        <button id="refresh-button" class="icon-button" type="button" aria-label="Actualizar inventario" title="Actualizar inventario">
+          &#8635;
+        </button>
+        <span id="api-status" class="status-pill">API sin verificar</span>
+      </div>
+    </header>
+
+    <main class="shell">
+      <section id="auth-view" class="auth-view">
+        <form id="login-form" class="panel auth-panel form-panel">
+          <h2>Ingresar</h2>
+          <label>
+            Usuario
+            <input name="username" autocomplete="username" required />
+          </label>
+          <label>
+            Contrasena
+            <input name="password" type="password" autocomplete="current-password" required />
+          </label>
+          <button class="primary-button" type="submit">Ingresar</button>
+        </form>
+
+        <form id="bootstrap-form" class="panel auth-panel form-panel" hidden>
+          <h2>Crear usuario principal</h2>
+          <label>
+            Nombre completo
+            <input name="full_name" autocomplete="name" required />
+          </label>
+          <label>
+            Usuario
+            <input name="username" minlength="3" autocomplete="username" required />
+          </label>
+          <label>
+            Correo
+            <input name="email" type="email" autocomplete="email" required />
+          </label>
+          <label>
+            Contrasena
+            <input name="password" type="password" minlength="10" autocomplete="new-password" required />
+          </label>
+          <label>
+            Motivo
+            <textarea name="reason" required>Configuracion inicial del sistema</textarea>
+          </label>
+          <button class="primary-button" type="submit">Crear principal</button>
+        </form>
+
+        <form id="password-change-form" class="panel auth-panel form-panel" hidden>
+          <h2>Cambiar contrasena provisional</h2>
+          <label>
+            Contrasena actual
+            <input name="current_password" type="password" autocomplete="current-password" required />
+          </label>
+          <label>
+            Nueva contrasena
+            <input name="new_password" type="password" minlength="10" autocomplete="new-password" required />
+          </label>
+          <label>
+            Repetir nueva contrasena
+            <input name="confirm_password" type="password" minlength="10" autocomplete="new-password" required />
+          </label>
+          <input name="reason" type="hidden" value="Cambio obligatorio de contrasena provisional" />
+          <button class="primary-button" type="submit">Cambiar contrasena</button>
+        </form>
+      </section>
+
+      <section id="message-panel" class="message-panel" aria-live="polite"></section>
+
+      <div id="application-view" hidden>
+      <section class="grid permission-guard" data-permission="view_inventory">
+        <article class="metric">
+          <span class="label">Stock fisico confirmado</span>
+          <strong id="metric-physical">--</strong>
+        </article>
+        <article class="metric">
+          <span class="label">Reservado</span>
+          <strong id="metric-reserved">--</strong>
+        </article>
+        <article class="metric">
+          <span class="label">Facturado no despachado</span>
+          <strong id="metric-invoiced">--</strong>
+        </article>
+        <article class="metric">
+          <span class="label">Bloqueado por incidencia</span>
+          <strong id="metric-blocked">--</strong>
+        </article>
+      </section>
+
+      <section class="action-grid">
+        <form id="invoice-form" class="panel form-panel permission-guard" data-permission="register_invoice">
+          <h2>Factura Contifico</h2>
+          <div class="form-row two">
+            <label>
+              Factura
+              <input name="invoice_number" required />
+            </label>
+            <label>
+              Cliente
+              <input name="customer_name" />
+            </label>
+          </div>
+          <div id="invoice-lines" class="line-list"></div>
+          <button class="secondary-button" type="button" data-add-line="invoice">+ Producto</button>
+          <label>
+            Motivo
+            <textarea name="reason" required>Factura registrada luego de confirmar disponibilidad</textarea>
+          </label>
+          <button class="primary-button" type="submit">Registrar factura</button>
+        </form>
+
+        <form id="reservation-form" class="panel form-panel permission-guard" data-permission="manage_reservations">
+          <h2>Reserva</h2>
+          <div class="form-row two">
+            <label>
+              SKU
+              <input name="sku" required />
+            </label>
+            <label>
+              Unidades
+              <input name="quantity" type="number" min="1" required />
+            </label>
+          </div>
+          <label>
+            Cliente
+            <input name="customer_name" />
+          </label>
+          <label>
+            Motivo
+            <textarea name="reason" required>Separar producto para OC pendiente de facturar</textarea>
+          </label>
+          <button class="primary-button" type="submit">Crear reserva</button>
+        </form>
+
+        <form id="dispatch-form" class="panel form-panel permission-guard" data-permission="confirm_dispatch">
+          <h2>Despacho</h2>
+          <label>
+            Factura
+            <input name="invoice_number" required />
+          </label>
+          <div id="dispatch-lines" class="line-list"></div>
+          <button class="secondary-button" type="button" data-add-line="dispatch">+ Producto</button>
+          <label>
+            Motivo
+            <textarea name="reason" required>Bodega confirma despacho</textarea>
+          </label>
+          <button class="primary-button" type="submit">Confirmar despacho</button>
+        </form>
+
+        <form id="adjustment-form" class="panel form-panel permission-guard" data-permission="request_stock_adjustment">
+          <h2>Ajuste de stock</h2>
+          <div class="form-row two">
+            <label>
+              SKU
+              <input name="sku" required />
+            </label>
+            <label>
+              Fisico contado
+              <input name="requested_physical_confirmed" type="number" min="0" required />
+            </label>
+          </div>
+          <label>
+            Motivo
+            <textarea name="reason" required>Conteo fisico semanal</textarea>
+          </label>
+          <button class="primary-button" type="submit">Solicitar ajuste</button>
+        </form>
+
+        <form id="approval-form" class="panel form-panel permission-guard" data-permission="approve_stock_adjustment">
+          <h2>Decision de ajuste</h2>
+          <label>
+            Solicitud
+            <input name="approval_id" type="number" min="1" required />
+          </label>
+          <label>
+            Motivo
+            <textarea name="reason" required>Revision administrativa</textarea>
+          </label>
+          <div class="button-row">
+            <button class="primary-button" type="submit" data-decision="approve">Aprobar</button>
+            <button class="danger-button" type="submit" data-decision="reject">Rechazar</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="permission-guard user-management" data-permission="manage_users">
+        <form id="user-create-form" class="panel form-panel">
+          <h2>Nuevo usuario</h2>
+          <label>
+            Nombre completo
+            <input name="full_name" required />
+          </label>
+          <label>
+            Usuario
+            <input name="username" minlength="3" required />
+          </label>
+          <label>
+            Correo
+            <input name="email" type="email" required />
+          </label>
+          <label>
+            Contrasena provisional
+            <input name="temporary_password" type="password" minlength="10" required />
+          </label>
+          <label>
+            Rol
+            <select name="role" required>
+              <option value="administracion">Administracion</option>
+              <option value="ventas">Ventas</option>
+              <option value="bodega">Bodega</option>
+              <option value="consulta">Consulta</option>
+              <option value="principal">Principal</option>
+            </select>
+          </label>
+          <label>
+            Motivo
+            <textarea name="reason" required>Creacion de acceso autorizado</textarea>
+          </label>
+          <button class="primary-button" type="submit">Crear usuario</button>
+        </form>
+
+        <form id="user-update-form" class="panel form-panel">
+          <h2>Cambiar usuario</h2>
+          <div class="form-row two">
+            <label>
+              Usuario ID
+              <input name="user_id" type="number" min="1" required />
+            </label>
+            <label>
+              Estado
+              <select name="is_active">
+                <option value="">Sin cambio</option>
+                <option value="true">Activo</option>
+                <option value="false">Inactivo</option>
+              </select>
+            </label>
+          </div>
+          <label>
+            Nombre completo
+            <input name="full_name" placeholder="Dejar vacio para no cambiar" />
+          </label>
+          <label>
+            Rol
+            <select name="role">
+              <option value="">Sin cambio</option>
+              <option value="administracion">Administracion</option>
+              <option value="ventas">Ventas</option>
+              <option value="bodega">Bodega</option>
+              <option value="consulta">Consulta</option>
+              <option value="principal">Principal</option>
+            </select>
+          </label>
+          <label>
+            Motivo
+            <textarea name="reason" required>Cambio de acceso autorizado</textarea>
+          </label>
+          <button class="primary-button" type="submit">Guardar cambio</button>
+        </form>
+
+        <form id="user-reset-form" class="panel form-panel">
+          <h2>Restablecer contrasena</h2>
+          <label>
+            Usuario ID
+            <input name="user_id" type="number" min="1" required />
+          </label>
+          <label>
+            Nueva contrasena provisional
+            <input name="temporary_password" type="password" minlength="10" required />
+          </label>
+          <label>
+            Motivo
+            <textarea name="reason" required>Restablecimiento autorizado por el principal</textarea>
+          </label>
+          <button class="primary-button" type="submit">Restablecer</button>
+        </form>
+
+        <section class="panel user-table-panel">
+          <h2>Usuarios</h2>
+          <div class="table-wrap">
+            <table class="user-table">
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Usuario</th>
+                  <th>Nombre</th>
+                  <th>Correo</th>
+                  <th>Rol</th>
+                  <th>Estado</th>
+                  <th>Clave provisional</th>
+                </tr>
+              </thead>
+              <tbody id="users-body"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+
+      <section class="panel table-panel permission-guard" data-permission="view_inventory">
+        <h2>Productos</h2>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>SKU</th>
+                <th>Producto</th>
+                <th>UXC</th>
+                <th>Fisico</th>
+                <th>Reservado</th>
+                <th>Facturado pendiente</th>
+                <th>Incidencia</th>
+                <th>Disponible</th>
+              </tr>
+            </thead>
+            <tbody id="availability-body">
+              <tr>
+                <td colspan="8">Esperando conexion con la API.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+      </div>
+    </main>
+
+    <script src="./js/app.js?v=2"></script>
+  </body>
+</html>

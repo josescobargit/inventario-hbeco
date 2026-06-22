@@ -1,9 +1,13 @@
 venv/
+.venv/
 __pycache__/
 *.pyc
 *.sqlite3
 *.sqlite3-*
 .DS_Store
+.env
+.env.*
+!.env.example
 .streamlit/secrets.toml
 debug_tia.py
 test_reconciliation.py
