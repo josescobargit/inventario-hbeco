@@ -5,7 +5,15 @@ from app.auth import require_permission
 from app.core.permissions import Permission
 from app.db.session import get_db
 from app.models.inventory import User
-from app.schemas.invoices import InvoiceCreate, InvoiceRead, InvoiceSummaryRead
+from app.parsers.invoice_bulk import BulkInvoiceParseError
+from app.schemas.invoices import (
+    BulkInvoicePreviewRead,
+    BulkInvoicePreviewRequest,
+    InvoiceCreate,
+    InvoiceRead,
+    InvoiceSummaryRead,
+)
+from app.services.invoice_bulk import BulkInvoiceUnknownProductError, build_bulk_invoice_preview
 from app.services.invoicing import (
     InsufficientStockError,
     InvoiceAlreadyExistsError,
@@ -25,6 +33,23 @@ def read_invoices(
     _: User = Depends(require_permission(Permission.view_inventory)),
 ) -> list[InvoiceSummaryRead]:
     return list_invoice_summaries(db, limit)
+
+
+@router.post("/bulk-preview", response_model=BulkInvoicePreviewRead)
+def preview_bulk_invoices(
+    payload: BulkInvoicePreviewRequest,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_permission(Permission.register_invoice)),
+) -> BulkInvoicePreviewRead:
+    try:
+        return build_bulk_invoice_preview(db, payload.raw_text)
+    except BulkInvoiceUnknownProductError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"No pude homologar estos productos: {', '.join(exc.descriptions)}.",
+        ) from exc
+    except BulkInvoiceParseError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
 @router.post("", response_model=InvoiceRead, status_code=status.HTTP_201_CREATED)

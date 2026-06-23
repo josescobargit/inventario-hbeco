@@ -6,7 +6,12 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, aliased
 
 from app.models.inventory import AuditLog, Product, PurchaseOrder, PurchaseOrderLine, User
-from app.schemas.purchase_orders import PurchaseOrderCreate, PurchaseOrderRead
+from app.schemas.purchase_orders import (
+    PurchaseOrderCreate,
+    PurchaseOrderPreviewLineRead,
+    PurchaseOrderPreviewRead,
+    PurchaseOrderRead,
+)
 
 
 class PurchaseOrderAlreadyExistsError(Exception):
@@ -137,3 +142,55 @@ def list_purchase_orders(db: Session, limit: int = 100) -> list[PurchaseOrderRea
         .limit(limit)
     ).mappings()
     return [PurchaseOrderRead(**row) for row in rows]
+
+
+def build_purchase_order_preview(
+    db: Session,
+    detected_chain_name: str | None,
+    source_filename: str,
+    lines: list[dict[str, object]],
+) -> PurchaseOrderPreviewRead:
+    aggregated: dict[str, dict[str, object]] = {}
+    for line in lines:
+        sku = str(line["sku"]).upper().strip()
+        current = aggregated.setdefault(
+            sku,
+            {
+                "sku": sku,
+                "requested_quantity": 0,
+                "original_description": line.get("original_description"),
+            },
+        )
+        current["requested_quantity"] = int(current["requested_quantity"]) + int(
+            line["requested_quantity"]
+        )
+
+    skus = sorted(aggregated)
+    products = db.execute(select(Product).where(Product.sku.in_(skus)).order_by(Product.sku)).scalars().all()
+    products_by_sku = {product.sku: product for product in products}
+    missing_skus = [sku for sku in skus if sku not in products_by_sku]
+    if missing_skus:
+        raise PurchaseOrderUnknownProductError(missing_skus)
+
+    preview_lines = []
+    total_units = 0
+    for sku in skus:
+        product = products_by_sku[sku]
+        quantity = int(aggregated[sku]["requested_quantity"])
+        total_units += quantity
+        preview_lines.append(
+            PurchaseOrderPreviewLineRead(
+                sku=sku,
+                product_name=product.name,
+                requested_quantity=quantity,
+                original_description=aggregated[sku]["original_description"],
+            )
+        )
+
+    return PurchaseOrderPreviewRead(
+        detected_chain_name=detected_chain_name,
+        source_filename=source_filename,
+        total_units=total_units,
+        line_count=len(preview_lines),
+        lines=preview_lines,
+    )

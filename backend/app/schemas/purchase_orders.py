@@ -31,3 +31,17 @@ class PurchaseOrderRead(BaseModel):
     created_by: Optional[str] = None
     created_at: datetime
 
+
+class PurchaseOrderPreviewLineRead(BaseModel):
+    sku: str
+    product_name: str
+    requested_quantity: int
+    original_description: Optional[str] = None
+
+
+class PurchaseOrderPreviewRead(BaseModel):
+    detected_chain_name: Optional[str] = None
+    source_filename: str
+    total_units: int
+    line_count: int
+    lines: list[PurchaseOrderPreviewLineRead]

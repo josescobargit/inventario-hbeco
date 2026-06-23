@@ -7,3 +7,5 @@ pydantic-settings
 pytest
 openpyxl
 python-multipart
+pdfplumber
+pandas

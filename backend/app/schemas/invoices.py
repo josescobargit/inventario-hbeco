@@ -44,3 +44,26 @@ class InvoiceSummaryRead(BaseModel):
     pending_units: int
     registered_by: Optional[str] = None
     registered_at: datetime
+
+
+class BulkInvoicePreviewRequest(BaseModel):
+    raw_text: str = Field(min_length=3)
+
+
+class BulkInvoicePreviewLineRead(BaseModel):
+    sku: str
+    product_name: str
+    quantity: int
+    raw_description: str
+
+
+class BulkInvoicePreviewItemRead(BaseModel):
+    block_number: int
+    total_units: int
+    lines: list[BulkInvoicePreviewLineRead]
+
+
+class BulkInvoicePreviewRead(BaseModel):
+    invoice_count: int
+    lines_total: int
+    invoices: list[BulkInvoicePreviewItemRead]

@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Inventario Operativo</title>
-    <link rel="stylesheet" href="./css/styles.css?v=6" />
+    <link rel="stylesheet" href="./css/styles.css?v=7" />
   </head>
   <body data-api-base-url="">
     <header class="app-header">
@@ -262,6 +262,25 @@
           <button class="primary-button" type="submit">Guardar OC</button>
         </form>
 
+        <form id="purchase-order-upload-form" class="panel form-panel module-view permission-guard" data-view="purchase-orders" data-permission="manage_reservations">
+          <h2>Subir PDF de OC</h2>
+          <label>
+            Archivo PDF
+            <input name="purchase_order_file" type="file" accept=".pdf,application/pdf" required />
+          </label>
+          <button class="secondary-button" type="submit">Detectar productos</button>
+          <section id="purchase-order-preview" class="import-preview" hidden>
+            <div id="purchase-order-preview-summary" class="import-summary"></div>
+            <div class="table-wrap">
+              <table class="compact-table">
+                <thead><tr><th>SKU</th><th>Producto</th><th>Unidades</th><th>Texto detectado</th></tr></thead>
+                <tbody id="purchase-order-preview-body"></tbody>
+              </table>
+            </div>
+            <button id="apply-purchase-order-preview" class="primary-button" type="button">Pasar al formulario OC</button>
+          </section>
+        </form>
+
         <form id="invoice-form" class="panel form-panel module-view permission-guard" data-view="invoices" data-permission="register_invoice">
           <h2>Factura Contifico</h2>
           <div class="form-row two">
@@ -281,6 +300,35 @@
             <textarea name="reason" required>Factura registrada luego de confirmar disponibilidad</textarea>
           </label>
           <button class="primary-button" type="submit">Registrar factura</button>
+        </form>
+
+        <form id="bulk-invoice-form" class="panel form-panel module-view permission-guard" data-view="invoices" data-permission="register_invoice">
+          <h2>Facturacion masiva</h2>
+          <div class="form-row two">
+            <label>
+              Cliente
+              <input name="customer_name" />
+            </label>
+            <label>
+              Motivo
+              <input name="reason" value="Carga masiva de facturas confirmadas en Contifico" required />
+            </label>
+          </div>
+          <label>
+            Texto de facturas
+            <textarea name="raw_text" class="tall-textarea" required></textarea>
+          </label>
+          <button class="secondary-button" type="submit">Revisar bloques</button>
+          <section id="bulk-invoice-preview" class="import-preview" hidden>
+            <div id="bulk-invoice-summary" class="import-summary"></div>
+            <div class="table-wrap">
+              <table class="compact-table">
+                <thead><tr><th>Bloque</th><th>Factura</th><th>Unidades</th><th>Productos</th></tr></thead>
+                <tbody id="bulk-invoice-body"></tbody>
+              </table>
+            </div>
+            <button id="confirm-bulk-invoice" class="primary-button" type="button">Registrar facturas</button>
+          </section>
         </form>
 
         <form id="reservation-form" class="panel form-panel module-view permission-guard" data-view="reservations" data-permission="manage_reservations">
@@ -578,6 +626,8 @@
       </div>
     </main>
 
-    <script src="./js/app.js?v=6"></script>
+    <datalist id="product-options"></datalist>
+
+    <script src="./js/app.js?v=7"></script>
   </body>
 </html>

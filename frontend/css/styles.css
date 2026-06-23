@@ -188,7 +188,7 @@ h2 {
   gap: 14px;
   grid-template-columns: minmax(0, 1fr);
   margin-top: 0;
-  max-width: 760px;
+  max-width: 900px;
 }
 
 .form-panel {
@@ -262,6 +262,10 @@ select:focus {
 textarea {
   min-height: 70px;
   resize: vertical;
+}
+
+.tall-textarea {
+  min-height: 220px;
 }
 
 select {
@@ -418,6 +422,10 @@ button {
 
 .table-wrap {
   overflow-x: auto;
+}
+
+.compact-table input {
+  min-height: 36px;
 }
 
 table {
