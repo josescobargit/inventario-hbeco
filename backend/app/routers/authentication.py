@@ -58,7 +58,7 @@ def login(
         max_age=settings.session_hours * 60 * 60,
         httponly=True,
         secure=settings.cookie_secure,
-        samesite="lax",
+        samesite=settings.session_cookie_samesite,
         path="/",
     )
     return LoginRead(user=current_user_read(result.user), expires_at=result.session.expires_at)

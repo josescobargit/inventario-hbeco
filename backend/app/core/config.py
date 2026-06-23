@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     login_max_attempts: int = 5
     login_lock_minutes: int = 15
     cookie_secure: bool = False
+    session_cookie_samesite: str = "lax"
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 

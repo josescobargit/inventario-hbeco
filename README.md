@@ -81,6 +81,12 @@ Para usar Supabase como PostgreSQL administrado, consultar:
 docs/supabase.md
 ```
 
+Para publicar gratis el sistema nuevo sin depender de Streamlit, consultar:
+
+```text
+docs/despliegue_gratis.md
+```
+
 ## Ejemplos de API
 
 ```text

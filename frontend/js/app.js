@@ -47,7 +47,17 @@ const workspaceTitle = document.querySelector("#workspace-title");
 const workspaceDescription = document.querySelector("#workspace-description");
 const workspaceRole = document.querySelector("#workspace-role");
 
-const API_BASE_URL = "http://127.0.0.1:8000";
+const API_BASE_URL = (() => {
+  const configuredBase = document.body?.dataset?.apiBaseUrl?.trim();
+  if (configuredBase) {
+    return configuredBase.replace(/\/$/, "");
+  }
+  if (window.location.protocol.startsWith("http")) {
+    const isLocalhost = ["localhost", "127.0.0.1"].includes(window.location.hostname);
+    return isLocalhost ? "http://127.0.0.1:8000" : "/api";
+  }
+  return "http://127.0.0.1:8000";
+})();
 let currentUser = null;
 let currentStockImportPreview = null;
 
@@ -125,12 +135,16 @@ function setApiStatus(text, connected) {
   statusEl.classList.toggle("ok", connected);
 }
 
+function buildApiUrl(path) {
+  return `${API_BASE_URL}${path}`;
+}
+
 async function apiRequest(path, options = {}) {
   const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
   if (options.body instanceof FormData) {
     delete headers["Content-Type"];
   }
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  const response = await fetch(buildApiUrl(path), {
     ...options,
     headers,
     credentials: "include",
@@ -713,7 +727,7 @@ adjustmentForm.addEventListener("submit", async (event) => {
 
 stockTemplateButton.addEventListener("click", async () => {
   try {
-    const response = await fetch(`${API_BASE_URL}/stock-imports/template`, {
+    const response = await fetch(buildApiUrl("/stock-imports/template"), {
       credentials: "include",
     });
     if (!response.ok) throw new Error("No se pudo descargar la plantilla.");
