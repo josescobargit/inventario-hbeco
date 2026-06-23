@@ -6,7 +6,9 @@ from app.routers import (
     authentication,
     dispatches,
     health,
+    incidents,
     invoices,
+    purchase_orders,
     products,
     reservations,
     stock_adjustments,
@@ -36,6 +38,8 @@ app.include_router(products.router)
 app.include_router(invoices.router)
 app.include_router(dispatches.router)
 app.include_router(reservations.router)
+app.include_router(purchase_orders.router)
+app.include_router(incidents.router)
 app.include_router(stock_adjustments.router)
 app.include_router(stock_imports.router)
 app.include_router(users.router)

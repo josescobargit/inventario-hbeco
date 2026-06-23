@@ -1,7 +1,17 @@
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, aliased
 
-from app.models.inventory import Dispatch, Invoice, InvoiceLine, Product, Reservation, User
+from app.models.inventory import (
+    Dispatch,
+    Incident,
+    Invoice,
+    InvoiceLine,
+    Product,
+    PurchaseOrder,
+    Reservation,
+    User,
+)
+from app.schemas.incidents import IncidentRead
 from app.schemas.dispatches import PendingDispatchRead
 from app.schemas.invoices import InvoiceSummaryRead
 from app.schemas.reservations import ReservationSummaryRead
@@ -125,3 +135,32 @@ def list_pending_dispatches(db: Session, limit: int = 500) -> list[PendingDispat
         if values["pending_quantity"] > 0:
             pending_rows.append(PendingDispatchRead(**values))
     return pending_rows
+
+
+def list_incident_summaries(db: Session, limit: int = 100) -> list[IncidentRead]:
+    creator = aliased(User)
+    rows = db.execute(
+        select(
+            Incident.id,
+            Incident.status,
+            Incident.incident_type,
+            Product.sku,
+            Product.name.label("product_name"),
+            Invoice.invoice_number,
+            Invoice.customer_name,
+            (PurchaseOrder.chain_name + " / " + PurchaseOrder.order_number).label(
+                "purchase_order_reference"
+            ),
+            Incident.description,
+            creator.full_name.label("created_by"),
+            Incident.created_at,
+            Incident.resolved_at,
+        )
+        .outerjoin(Product, Product.id == Incident.product_id)
+        .outerjoin(Invoice, Invoice.id == Incident.invoice_id)
+        .outerjoin(PurchaseOrder, PurchaseOrder.id == Incident.purchase_order_id)
+        .outerjoin(creator, creator.id == Incident.created_by_user_id)
+        .order_by(Incident.created_at.desc(), Incident.id.desc())
+        .limit(limit)
+    ).mappings()
+    return [IncidentRead(**row) for row in rows]

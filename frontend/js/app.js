@@ -9,6 +9,7 @@ const messagePanel = document.querySelector("#message-panel");
 const invoiceForm = document.querySelector("#invoice-form");
 const reservationForm = document.querySelector("#reservation-form");
 const dispatchForm = document.querySelector("#dispatch-form");
+const purchaseOrderForm = document.querySelector("#purchase-order-form");
 const adjustmentForm = document.querySelector("#adjustment-form");
 const approvalForm = document.querySelector("#approval-form");
 const stockImportForm = document.querySelector("#stock-import-form");
@@ -23,6 +24,7 @@ const stockImportRequestsBody = document.querySelector("#stock-import-requests-b
 const refreshStockImportsButton = document.querySelector("#refresh-stock-imports");
 const invoiceLines = document.querySelector("#invoice-lines");
 const dispatchLines = document.querySelector("#dispatch-lines");
+const purchaseOrderLines = document.querySelector("#purchase-order-lines");
 const currentUserLabel = document.querySelector("#current-user-label");
 const currentRoleLabel = document.querySelector("#current-role-label");
 const userSummary = document.querySelector("#user-summary");
@@ -41,6 +43,10 @@ const refreshTrackingButton = document.querySelector("#refresh-tracking");
 const trackingInvoicesBody = document.querySelector("#tracking-invoices-body");
 const trackingReservationsBody = document.querySelector("#tracking-reservations-body");
 const trackingDispatchesBody = document.querySelector("#tracking-dispatches-body");
+const purchaseOrdersBody = document.querySelector("#purchase-orders-body");
+const incidentsBody = document.querySelector("#incidents-body");
+const refreshPurchaseOrdersButton = document.querySelector("#refresh-purchase-orders");
+const refreshIncidentsButton = document.querySelector("#refresh-incidents");
 const moduleButtons = [...document.querySelectorAll("[data-module]")];
 const moduleViews = [...document.querySelectorAll(".module-view")];
 const workspaceTitle = document.querySelector("#workspace-title");
@@ -77,6 +83,14 @@ const MODULE_META = {
   tracking: {
     title: "Seguimiento operativo",
     description: "Consulta facturas, reservas y productos pendientes de despacho.",
+  },
+  "purchase-orders": {
+    title: "Ordenes de compra",
+    description: "Registra OCs, guarda trazabilidad por cadena y prepara el trabajo de facturacion.",
+  },
+  incidents: {
+    title: "Incidencias",
+    description: "Muestra faltantes y problemas detectados para que no se pierda el seguimiento.",
   },
   invoices: {
     title: "Facturacion",
@@ -335,6 +349,26 @@ async function loadCurrentUser() {
 }
 
 function lineTemplate(type) {
+  if (type === "purchase-order") {
+    return `
+      <div class="line-item">
+        <label>
+          SKU
+          <input name="sku" required />
+        </label>
+        <label>
+          Solicitado
+          <input name="requested_quantity" type="number" min="1" required />
+        </label>
+        <label>
+          Descripcion OC
+          <input name="original_description" />
+        </label>
+        <button class="icon-button remove-line" type="button" aria-label="Quitar producto" title="Quitar producto">-</button>
+      </div>
+    `;
+  }
+
   if (type === "dispatch") {
     return `
       <div class="line-item">
@@ -379,7 +413,12 @@ function readLines(container, fields) {
     const item = {};
     fields.forEach((field) => {
       const input = row.querySelector(`[name="${field.name}"]`);
-      item[field.name] = field.number ? Number(input.value || 0) : input.value.trim().toUpperCase();
+      if (field.number) {
+        item[field.name] = Number(input.value || 0);
+        return;
+      }
+      const value = input.value.trim();
+      item[field.name] = field.uppercase === false ? value : value.toUpperCase();
     });
     return item;
   });
@@ -506,6 +545,51 @@ function renderPendingDispatches(rows) {
     .join("");
 }
 
+function renderPurchaseOrders(rows) {
+  if (!rows.length) {
+    purchaseOrdersBody.innerHTML = '<tr><td colspan="7">No hay OCs registradas.</td></tr>';
+    return;
+  }
+  purchaseOrdersBody.innerHTML = rows
+    .map(
+      (row) => `
+        <tr>
+          <td>${row.id}</td>
+          <td>${escapeHtml(row.chain_name)}</td>
+          <td>${escapeHtml(row.order_number)}</td>
+          <td>${escapeHtml(row.status)}</td>
+          <td>${formatNumber(row.total_units)}</td>
+          <td>${formatNumber(row.line_count)}</td>
+          <td>${formatDate(row.created_at)}</td>
+        </tr>
+      `,
+    )
+    .join("");
+}
+
+function renderIncidents(rows) {
+  if (!rows.length) {
+    incidentsBody.innerHTML = '<tr><td colspan="8">No hay incidencias registradas.</td></tr>';
+    return;
+  }
+  incidentsBody.innerHTML = rows
+    .map(
+      (row) => `
+        <tr>
+          <td>${row.id}</td>
+          <td>${escapeHtml(row.status)}</td>
+          <td>${escapeHtml(row.incident_type)}</td>
+          <td title="${escapeHtml(row.product_name || "")}">${escapeHtml(row.sku || "-")}</td>
+          <td>${escapeHtml(row.invoice_number || "-")}</td>
+          <td>${escapeHtml(row.purchase_order_reference || row.customer_name || "-")}</td>
+          <td title="${escapeHtml(row.description)}">${escapeHtml(row.description)}</td>
+          <td>${formatDate(row.created_at)}</td>
+        </tr>
+      `,
+    )
+    .join("");
+}
+
 async function loadTracking() {
   const [invoices, reservations, dispatches] = await Promise.all([
     apiRequest("/invoices"),
@@ -516,6 +600,18 @@ async function loadTracking() {
   renderReservationTracking(reservations);
   renderPendingDispatches(dispatches);
   setMessage("Seguimiento actualizado.", "success");
+}
+
+async function loadPurchaseOrders() {
+  const rows = await apiRequest("/purchase-orders");
+  renderPurchaseOrders(rows);
+  setMessage("Ordenes de compra actualizadas.", "success");
+}
+
+async function loadIncidents() {
+  const rows = await apiRequest("/incidents");
+  renderIncidents(rows);
+  setMessage("Incidencias actualizadas.", "success");
 }
 
 async function checkApi() {
@@ -623,6 +719,39 @@ logoutButton.addEventListener("click", async () => {
   }
   showAuthForm(loginForm);
   setMessage("Sesion cerrada.", "success");
+});
+
+purchaseOrderForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = new FormData(purchaseOrderForm);
+  const payload = {
+    chain_name: form.get("chain_name").trim(),
+    order_number: form.get("order_number").trim(),
+    notes: form.get("notes").trim() || null,
+    reason: form.get("reason").trim(),
+    lines: readLines(purchaseOrderLines, [
+      { name: "sku" },
+      { name: "requested_quantity", number: true },
+      { name: "original_description", uppercase: false },
+    ]).map((line) => ({
+      ...line,
+      original_description: line.original_description?.trim() || null,
+    })),
+  };
+
+  try {
+    const data = await apiRequest("/purchase-orders", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+    setMessage(`OC registrada: ${data.chain_name} / ${data.order_number}`, "success");
+    purchaseOrderForm.reset();
+    purchaseOrderLines.innerHTML = "";
+    addLine(purchaseOrderLines, "purchase-order");
+    await loadPurchaseOrders();
+  } catch (error) {
+    setMessage(error.message, "error");
+  }
 });
 
 invoiceForm.addEventListener("submit", async (event) => {
@@ -939,12 +1068,25 @@ document.addEventListener("click", (event) => {
     if (moduleButton.dataset.module === "tracking") {
       loadTracking().catch((error) => setMessage(error.message, "error"));
     }
+    if (moduleButton.dataset.module === "purchase-orders") {
+      loadPurchaseOrders().catch((error) => setMessage(error.message, "error"));
+    }
+    if (moduleButton.dataset.module === "incidents") {
+      loadIncidents().catch((error) => setMessage(error.message, "error"));
+    }
     return;
   }
 
   const addButton = event.target.closest("[data-add-line]");
   if (addButton) {
-    addLine(addButton.dataset.addLine === "dispatch" ? dispatchLines : invoiceLines, addButton.dataset.addLine);
+    const type = addButton.dataset.addLine;
+    const container =
+      type === "dispatch"
+        ? dispatchLines
+        : type === "purchase-order"
+          ? purchaseOrderLines
+          : invoiceLines;
+    addLine(container, type);
   }
 
   const removeButton = event.target.closest(".remove-line");
@@ -966,7 +1108,14 @@ refreshButton.addEventListener("click", loadAvailability);
 refreshTrackingButton.addEventListener("click", () => {
   loadTracking().catch((error) => setMessage(error.message, "error"));
 });
+refreshPurchaseOrdersButton.addEventListener("click", () => {
+  loadPurchaseOrders().catch((error) => setMessage(error.message, "error"));
+});
+refreshIncidentsButton.addEventListener("click", () => {
+  loadIncidents().catch((error) => setMessage(error.message, "error"));
+});
 
 addLine(invoiceLines, "invoice");
 addLine(dispatchLines, "dispatch");
+addLine(purchaseOrderLines, "purchase-order");
 checkApi();

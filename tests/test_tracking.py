@@ -1,8 +1,18 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
-from app.models.inventory import Dispatch, Invoice, InvoiceLine, Product, Reservation, User
+from app.models.inventory import (
+    Dispatch,
+    Incident,
+    Invoice,
+    InvoiceLine,
+    Product,
+    PurchaseOrder,
+    Reservation,
+    User,
+)
 from app.services.tracking import (
+    list_incident_summaries,
     list_invoice_summaries,
     list_pending_dispatches,
     list_reservation_summaries,
@@ -18,6 +28,8 @@ def tracking_db():
         InvoiceLine.__table__,
         Dispatch.__table__,
         Reservation.__table__,
+        PurchaseOrder.__table__,
+        Incident.__table__,
     ):
         table.create(engine)
     return Session(engine)
@@ -105,3 +117,38 @@ def test_fully_reported_invoice_is_not_pending():
     db.commit()
 
     assert list_pending_dispatches(db) == []
+
+
+def test_incident_summaries_include_invoice_and_purchase_order_reference():
+    db = tracking_db()
+    user = User(
+        username="bodega1",
+        email="bodega@example.com",
+        full_name="Usuario Bodega",
+        password_hash="not-used",
+        role="bodega",
+        must_change_password=False,
+    )
+    product = Product(sku="AE001", name="Shampoo", units_per_case=12)
+    invoice = Invoice(invoice_number="001-001-777", customer_name="TIA")
+    purchase_order = PurchaseOrder(chain_name="TIA", order_number="OC-55")
+    db.add_all([user, product, invoice, purchase_order])
+    db.flush()
+    db.add(
+        Incident(
+            status="abierta",
+            incident_type="faltante_despacho",
+            product_id=product.id,
+            invoice_id=invoice.id,
+            purchase_order_id=purchase_order.id,
+            description="Faltante detectado al despachar",
+            created_by_user_id=user.id,
+        )
+    )
+    db.commit()
+
+    incidents = list_incident_summaries(db)
+    assert incidents[0].sku == "AE001"
+    assert incidents[0].invoice_number == "001-001-777"
+    assert incidents[0].purchase_order_reference == "TIA / OC-55"
+    assert incidents[0].created_by == "Usuario Bodega"

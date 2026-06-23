@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Inventario Operativo</title>
-    <link rel="stylesheet" href="./css/styles.css?v=5" />
+    <link rel="stylesheet" href="./css/styles.css?v=6" />
   </head>
   <body data-api-base-url="">
     <header class="app-header">
@@ -103,23 +103,29 @@
           <button class="nav-item permission-guard" type="button" data-module="tracking" data-permission="view_inventory">
             <span class="nav-icon" aria-hidden="true">02</span><span>Seguimiento</span>
           </button>
+          <button class="nav-item permission-guard" type="button" data-module="purchase-orders" data-permission="view_inventory">
+            <span class="nav-icon" aria-hidden="true">03</span><span>OC</span>
+          </button>
+          <button class="nav-item permission-guard" type="button" data-module="incidents" data-permission="view_inventory">
+            <span class="nav-icon" aria-hidden="true">04</span><span>Incidencias</span>
+          </button>
           <button class="nav-item permission-guard" type="button" data-module="invoices" data-permission="register_invoice">
-            <span class="nav-icon" aria-hidden="true">03</span><span>Facturacion</span>
+            <span class="nav-icon" aria-hidden="true">05</span><span>Facturacion</span>
           </button>
           <button class="nav-item permission-guard" type="button" data-module="reservations" data-permission="manage_reservations">
-            <span class="nav-icon" aria-hidden="true">04</span><span>Reservas</span>
+            <span class="nav-icon" aria-hidden="true">06</span><span>Reservas</span>
           </button>
           <button class="nav-item permission-guard" type="button" data-module="dispatches" data-permission="confirm_dispatch">
-            <span class="nav-icon" aria-hidden="true">05</span><span>Despachos</span>
+            <span class="nav-icon" aria-hidden="true">07</span><span>Despachos</span>
           </button>
           <button class="nav-item permission-guard" type="button" data-module="adjustments" data-permission="request_stock_adjustment">
-            <span class="nav-icon" aria-hidden="true">06</span><span>Ajustes</span>
+            <span class="nav-icon" aria-hidden="true">08</span><span>Ajustes</span>
           </button>
           <button class="nav-item permission-guard" type="button" data-module="approvals" data-permission="approve_stock_adjustment">
-            <span class="nav-icon" aria-hidden="true">07</span><span>Aprobaciones</span>
+            <span class="nav-icon" aria-hidden="true">09</span><span>Aprobaciones</span>
           </button>
           <button class="nav-item permission-guard" type="button" data-module="users" data-permission="manage_users">
-            <span class="nav-icon" aria-hidden="true">08</span><span>Usuarios</span>
+            <span class="nav-icon" aria-hidden="true">10</span><span>Usuarios</span>
           </button>
         </nav>
         <p class="sidebar-note">Los modulos se muestran segun el rol de cada usuario.</p>
@@ -189,7 +195,73 @@
         </section>
       </section>
 
+      <section class="panel module-view permission-guard" data-view="purchase-orders" data-permission="view_inventory">
+        <div class="table-heading">
+          <h2>Ordenes de compra recientes</h2>
+          <button id="refresh-purchase-orders" class="icon-button" type="button" aria-label="Actualizar ordenes de compra" title="Actualizar ordenes de compra">&#8635;</button>
+        </div>
+        <div class="table-wrap">
+          <table class="compact-table">
+            <thead><tr><th>ID</th><th>Cadena</th><th>OC</th><th>Estado</th><th>Unidades</th><th>Lineas</th><th>Creada</th></tr></thead>
+            <tbody id="purchase-orders-body"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel module-view permission-guard" data-view="incidents" data-permission="view_inventory">
+        <div class="table-heading">
+          <h2>Incidencias</h2>
+          <button id="refresh-incidents" class="icon-button" type="button" aria-label="Actualizar incidencias" title="Actualizar incidencias">&#8635;</button>
+        </div>
+        <div class="table-wrap">
+          <table class="compact-table">
+            <thead><tr><th>ID</th><th>Estado</th><th>Tipo</th><th>SKU</th><th>Factura</th><th>Referencia</th><th>Descripcion</th><th>Fecha</th></tr></thead>
+            <tbody id="incidents-body"></tbody>
+          </table>
+        </div>
+      </section>
+
       <section class="action-grid">
+        <form id="purchase-order-form" class="panel form-panel module-view permission-guard" data-view="purchase-orders" data-permission="manage_reservations">
+          <h2>Registrar OC</h2>
+          <div class="form-row two">
+            <label>
+              Cadena
+              <input name="chain_name" list="chain-options" required />
+            </label>
+            <label>
+              Numero OC
+              <input name="order_number" required />
+            </label>
+          </div>
+          <datalist id="chain-options">
+            <option value="TIA"></option>
+            <option value="FAVORITA"></option>
+            <option value="ROSADO"></option>
+            <option value="GERARDO ORTIZ"></option>
+            <option value="DANEC"></option>
+            <option value="TUTI"></option>
+            <option value="AUTOCONSUMO"></option>
+            <option value="SANTAMARIA"></option>
+            <option value="PROINSULAR"></option>
+            <option value="DIFARE"></option>
+            <option value="FARCOMED"></option>
+            <option value="FARMAENLACE"></option>
+            <option value="DIPASO"></option>
+          </datalist>
+          <div id="purchase-order-lines" class="line-list"></div>
+          <button class="secondary-button" type="button" data-add-line="purchase-order">+ Producto</button>
+          <label>
+            Notas
+            <textarea name="notes">Pedido recibido para revision y facturacion posterior</textarea>
+          </label>
+          <label>
+            Motivo
+            <textarea name="reason" required>Registro inicial de OC para trazabilidad interna</textarea>
+          </label>
+          <button class="primary-button" type="submit">Guardar OC</button>
+        </form>
+
         <form id="invoice-form" class="panel form-panel module-view permission-guard" data-view="invoices" data-permission="register_invoice">
           <h2>Factura Contifico</h2>
           <div class="form-row two">
@@ -506,6 +578,6 @@
       </div>
     </main>
 
-    <script src="./js/app.js?v=5"></script>
+    <script src="./js/app.js?v=6"></script>
   </body>
 </html>

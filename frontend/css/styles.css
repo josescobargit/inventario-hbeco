@@ -225,6 +225,10 @@ h2 {
   grid-template-columns: minmax(80px, 1fr) minmax(88px, 0.8fr) minmax(88px, 0.8fr) auto;
 }
 
+#purchase-order-lines .line-item {
+  grid-template-columns: minmax(80px, 0.9fr) minmax(88px, 0.8fr) minmax(140px, 1.4fr) auto;
+}
+
 label {
   color: var(--muted);
   display: grid;
@@ -752,6 +756,7 @@ td:nth-child(n + 4) {
   .form-row.two,
   .line-item,
   #dispatch-lines .line-item,
+  #purchase-order-lines .line-item,
   .user-management {
     grid-template-columns: 1fr;
   }
