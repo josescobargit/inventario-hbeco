@@ -56,6 +56,10 @@ Una incidencia se abre cuando:
 - Toda solicitud, aprobacion o rechazo exige motivo.
 - Todo queda con trazabilidad: usuario, fecha, antes, despues y motivo.
 - El ajuste no borra reservas, facturas pendientes ni incidencias; esas cantidades siguen visibles para no esconder problemas.
+- Una carga masiva exige los productos activos completos y primero genera una vista previa.
+- Enviar el archivo crea una solicitud, pero no modifica stock.
+- La aprobacion masiva se aplica completa o no se aplica.
+- Si el stock cambia despues de solicitar la aprobacion, el conteo queda obsoleto y se bloquea.
 
 ## Catalogo
 

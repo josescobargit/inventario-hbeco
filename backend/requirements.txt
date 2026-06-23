@@ -1,6 +1,9 @@
 fastapi
 uvicorn
 sqlalchemy
+alembic
 psycopg[binary]
 pydantic-settings
 pytest
+openpyxl
+python-multipart

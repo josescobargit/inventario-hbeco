@@ -11,9 +11,21 @@ const reservationForm = document.querySelector("#reservation-form");
 const dispatchForm = document.querySelector("#dispatch-form");
 const adjustmentForm = document.querySelector("#adjustment-form");
 const approvalForm = document.querySelector("#approval-form");
+const stockImportForm = document.querySelector("#stock-import-form");
+const stockTemplateButton = document.querySelector("#stock-template-button");
+const stockImportPreview = document.querySelector("#stock-import-preview");
+const stockImportSummary = document.querySelector("#stock-import-summary");
+const stockImportErrors = document.querySelector("#stock-import-errors");
+const stockImportBody = document.querySelector("#stock-import-body");
+const confirmStockImportButton = document.querySelector("#confirm-stock-import");
+const bulkApprovalForm = document.querySelector("#bulk-approval-form");
+const stockImportRequestsBody = document.querySelector("#stock-import-requests-body");
+const refreshStockImportsButton = document.querySelector("#refresh-stock-imports");
 const invoiceLines = document.querySelector("#invoice-lines");
 const dispatchLines = document.querySelector("#dispatch-lines");
 const currentUserLabel = document.querySelector("#current-user-label");
+const currentRoleLabel = document.querySelector("#current-role-label");
+const userSummary = document.querySelector("#user-summary");
 const logoutButton = document.querySelector("#logout-button");
 const authView = document.querySelector("#auth-view");
 const applicationView = document.querySelector("#application-view");
@@ -24,9 +36,55 @@ const userCreateForm = document.querySelector("#user-create-form");
 const userUpdateForm = document.querySelector("#user-update-form");
 const userResetForm = document.querySelector("#user-reset-form");
 const usersBody = document.querySelector("#users-body");
+const productCountBadge = document.querySelector("#product-count-badge");
+const moduleButtons = [...document.querySelectorAll("[data-module]")];
+const moduleViews = [...document.querySelectorAll(".module-view")];
+const workspaceTitle = document.querySelector("#workspace-title");
+const workspaceDescription = document.querySelector("#workspace-description");
+const workspaceRole = document.querySelector("#workspace-role");
 
 const API_BASE_URL = "http://127.0.0.1:8000";
 let currentUser = null;
+let currentStockImportPreview = null;
+
+const ROLE_LABELS = {
+  principal: "Principal",
+  administracion: "Administracion",
+  ventas: "Ventas",
+  bodega: "Bodega",
+  consulta: "Consulta",
+};
+
+const MODULE_META = {
+  overview: {
+    title: "Resumen de inventario",
+    description: "Disponibilidad operativa, indicadores y catalogo central.",
+  },
+  invoices: {
+    title: "Facturacion",
+    description: "Registra facturas confirmadas en Contifico sin exceder el disponible.",
+  },
+  reservations: {
+    title: "Reservas",
+    description: "Separa unidades para pedidos pendientes y conserva su trazabilidad.",
+  },
+  dispatches: {
+    title: "Despachos",
+    description: "Confirma salidas completas, parciales o faltantes reportados por bodega.",
+  },
+  adjustments: {
+    title: "Ajustes de stock",
+    description: "Registra ajustes individuales o carga el conteo fisico completo de bodega.",
+  },
+  approvals: {
+    title: "Aprobaciones",
+    description: "Revisa ajustes y conteos masivos antes de modificar el inventario.",
+  },
+  users: {
+    title: "Usuarios y accesos",
+    description: "Crea cuentas, asigna roles y administra el acceso al sistema.",
+  },
+};
 
 function formatNumber(value) {
   return Number(value || 0).toLocaleString("es-EC");
@@ -53,6 +111,9 @@ function setApiStatus(text, connected) {
 
 async function apiRequest(path, options = {}) {
   const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
+  if (options.body instanceof FormData) {
+    delete headers["Content-Type"];
+  }
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...options,
     headers,
@@ -80,6 +141,39 @@ function applyPermissions(permissionValues) {
   document.querySelectorAll("[data-permission]").forEach((element) => {
     element.classList.toggle("allowed", permissions.has(element.dataset.permission));
   });
+  activateFirstAllowedModule();
+}
+
+function activateModule(moduleName) {
+  const button = moduleButtons.find(
+    (item) => item.dataset.module === moduleName && item.classList.contains("allowed"),
+  );
+  if (!button) return;
+
+  moduleButtons.forEach((item) => {
+    const active = item === button;
+    item.classList.toggle("active", active);
+    item.setAttribute("aria-current", active ? "page" : "false");
+  });
+  moduleViews.forEach((view) => {
+    view.classList.toggle("active", view.dataset.view === moduleName);
+  });
+
+  const meta = MODULE_META[moduleName];
+  workspaceTitle.textContent = meta.title;
+  workspaceDescription.textContent = meta.description;
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+function activateFirstAllowedModule() {
+  const currentButton = moduleButtons.find(
+    (item) => item.classList.contains("active") && item.classList.contains("allowed"),
+  );
+  const preferredButton = moduleButtons.find(
+    (item) => item.dataset.module === "overview" && item.classList.contains("allowed"),
+  );
+  const target = currentButton || preferredButton || moduleButtons.find((item) => item.classList.contains("allowed"));
+  if (target) activateModule(target.dataset.module);
 }
 
 function showAuthForm(formToShow) {
@@ -87,6 +181,7 @@ function showAuthForm(formToShow) {
   authView.hidden = false;
   applicationView.hidden = true;
   currentUserLabel.hidden = true;
+  userSummary.hidden = true;
   logoutButton.hidden = true;
   [loginForm, bootstrapForm, passwordChangeForm].forEach((form) => {
     form.hidden = form !== formToShow;
@@ -99,13 +194,71 @@ async function showApplication(user) {
   authView.hidden = true;
   applicationView.hidden = false;
   currentUserLabel.hidden = false;
+  userSummary.hidden = false;
   logoutButton.hidden = false;
-  currentUserLabel.textContent = `${user.full_name} · ${user.role}`;
+  currentUserLabel.textContent = user.full_name;
+  currentRoleLabel.textContent = ROLE_LABELS[user.role] || user.role;
+  workspaceRole.textContent = `Vista ${ROLE_LABELS[user.role] || user.role}`;
   applyPermissions(user.permissions);
   await loadAvailability();
   if (user.role === "principal") {
     await loadUsers();
+    await loadStockImportRequests();
   }
+}
+
+function renderStockImportPreview(preview) {
+  currentStockImportPreview = preview;
+  stockImportPreview.hidden = false;
+  stockImportSummary.textContent = `${preview.file_products} productos · ${formatNumber(preview.total_units)} unidades · ${preview.changed_products} cambios`;
+
+  const errors = [];
+  if (preview.missing_skus.length) errors.push(`Faltan SKU: ${preview.missing_skus.join(", ")}`);
+  if (preview.unknown_skus.length) errors.push(`SKU desconocidos: ${preview.unknown_skus.join(", ")}`);
+  if (preview.duplicate_skus.length) errors.push(`SKU duplicados: ${preview.duplicate_skus.join(", ")}`);
+  stockImportErrors.textContent = errors.join(" · ");
+  stockImportErrors.hidden = errors.length === 0;
+  confirmStockImportButton.disabled = !preview.valid;
+
+  stockImportBody.innerHTML = preview.rows
+    .map(
+      (row) => `
+        <tr>
+          <td>${escapeHtml(row.sku)}</td>
+          <td>${escapeHtml(row.product_name)}</td>
+          <td>${formatNumber(row.current_physical_confirmed)}</td>
+          <td>${formatNumber(row.requested_physical_confirmed)}</td>
+          <td class="${row.difference < 0 ? "negative-value" : ""}">${row.difference > 0 ? "+" : ""}${formatNumber(row.difference)}</td>
+        </tr>
+      `,
+    )
+    .join("");
+}
+
+function renderStockImportRequests(requests) {
+  if (!requests.length) {
+    stockImportRequestsBody.innerHTML = '<tr><td colspan="6">No hay conteos masivos registrados.</td></tr>';
+    return;
+  }
+  stockImportRequestsBody.innerHTML = requests
+    .map(
+      (request) => `
+        <tr>
+          <td>${request.approval_id}</td>
+          <td>${escapeHtml(request.status)}</td>
+          <td>${request.line_count}</td>
+          <td>${formatNumber(request.total_units)}</td>
+          <td>${escapeHtml(request.reason)}</td>
+          <td>${request.status === "solicitada" ? `<button class="secondary-button compact-action" type="button" data-select-stock-import="${request.approval_id}">Revisar</button>` : ""}</td>
+        </tr>
+      `,
+    )
+    .join("");
+}
+
+async function loadStockImportRequests() {
+  const requests = await apiRequest("/stock-imports");
+  renderStockImportRequests(requests);
 }
 
 function renderUsers(users) {
@@ -221,6 +374,7 @@ function updateMetrics(rows) {
 }
 
 function renderAvailability(rows) {
+  productCountBadge.textContent = `${formatNumber(rows.length)} ${rows.length === 1 ? "producto" : "productos"}`;
   if (!rows.length) {
     availabilityBody.innerHTML = '<tr><td colspan="8">No hay productos cargados.</td></tr>';
     updateMetrics([]);
@@ -466,6 +620,76 @@ adjustmentForm.addEventListener("submit", async (event) => {
   }
 });
 
+stockTemplateButton.addEventListener("click", async () => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/stock-imports/template`, {
+      credentials: "include",
+    });
+    if (!response.ok) throw new Error("No se pudo descargar la plantilla.");
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "plantilla_conteo_fisico.csv";
+    link.click();
+    URL.revokeObjectURL(url);
+  } catch (error) {
+    setMessage(error.message, "error");
+  }
+});
+
+stockImportForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = new FormData(stockImportForm);
+  const file = form.get("stock_file");
+  const upload = new FormData();
+  upload.append("file", file);
+
+  try {
+    const preview = await apiRequest("/stock-imports/preview", {
+      method: "POST",
+      body: upload,
+    });
+    renderStockImportPreview(preview);
+    setMessage(
+      preview.valid
+        ? "Archivo completo. Revisa las diferencias antes de enviarlo."
+        : "El archivo tiene observaciones y no puede enviarse todavia.",
+      preview.valid ? "success" : "error",
+    );
+  } catch (error) {
+    currentStockImportPreview = null;
+    stockImportPreview.hidden = true;
+    setMessage(error.message, "error");
+  }
+});
+
+confirmStockImportButton.addEventListener("click", async () => {
+  if (!currentStockImportPreview?.valid) return;
+  const form = new FormData(stockImportForm);
+  const payload = {
+    reason: form.get("reason").trim(),
+    lines: currentStockImportPreview.rows.map((row) => ({
+      sku: row.sku,
+      physical_confirmed: row.requested_physical_confirmed,
+    })),
+  };
+
+  try {
+    const request = await apiRequest("/stock-imports", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+    setMessage(`Conteo enviado para aprobacion: solicitud ${request.approval_id}.`, "success");
+    stockImportForm.reset();
+    stockImportPreview.hidden = true;
+    currentStockImportPreview = null;
+    if (currentUser?.role === "principal") await loadStockImportRequests();
+  } catch (error) {
+    setMessage(error.message, "error");
+  }
+});
+
 approvalForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const decision = event.submitter.dataset.decision;
@@ -483,6 +707,35 @@ approvalForm.addEventListener("submit", async (event) => {
     setMessage(`Solicitud ${data.status}: ${data.sku}`, "success");
     approvalForm.reset();
     await loadAvailability();
+  } catch (error) {
+    setMessage(error.message, "error");
+  }
+});
+
+bulkApprovalForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const decision = event.submitter.dataset.decision;
+  const form = new FormData(bulkApprovalForm);
+  const approvalId = Number(form.get("approval_id") || 0);
+  const payload = { reason: form.get("reason").trim() };
+
+  try {
+    const result = await apiRequest(`/stock-imports/${approvalId}/${decision}`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+    setMessage(`Conteo masivo ${result.status}: solicitud ${result.approval_id}.`, "success");
+    bulkApprovalForm.reset();
+    await Promise.all([loadAvailability(), loadStockImportRequests()]);
+  } catch (error) {
+    setMessage(error.message, "error");
+  }
+});
+
+refreshStockImportsButton.addEventListener("click", async () => {
+  try {
+    await loadStockImportRequests();
+    setMessage("Lista de conteos actualizada.", "success");
   } catch (error) {
     setMessage(error.message, "error");
   }
@@ -575,6 +828,12 @@ userUpdateForm.addEventListener("submit", async (event) => {
 });
 
 document.addEventListener("click", (event) => {
+  const moduleButton = event.target.closest("[data-module]");
+  if (moduleButton) {
+    activateModule(moduleButton.dataset.module);
+    return;
+  }
+
   const addButton = event.target.closest("[data-add-line]");
   if (addButton) {
     addLine(addButton.dataset.addLine === "dispatch" ? dispatchLines : invoiceLines, addButton.dataset.addLine);
@@ -586,6 +845,12 @@ document.addEventListener("click", (event) => {
     if (list.querySelectorAll(".line-item").length > 1) {
       removeButton.closest(".line-item").remove();
     }
+  }
+
+  const selectImportButton = event.target.closest("[data-select-stock-import]");
+  if (selectImportButton) {
+    bulkApprovalForm.elements.approval_id.value = selectImportButton.dataset.selectStockImport;
+    bulkApprovalForm.elements.approval_id.focus();
   }
 });
 

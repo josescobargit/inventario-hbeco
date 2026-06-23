@@ -57,13 +57,15 @@ El proceso esta documentado en:
 docs/catalogo.md
 ```
 
-## Esquema inicial de PostgreSQL
+## Esquema de PostgreSQL
 
-El primer esquema SQL esta en:
+El esquema se administra con migraciones versionadas de Alembic:
 
 ```text
-database/schema/001_initial_schema.sql
+database/migrations/
 ```
+
+`make db-schema` aplica las revisiones pendientes y `make db-current` muestra la revision instalada.
 
 ## Desarrollo local
 
@@ -73,8 +75,22 @@ Los pasos para levantar PostgreSQL, cargar el catalogo y correr backend/frontend
 docs/desarrollo_local.md
 ```
 
+Para usar Supabase como PostgreSQL administrado, consultar:
+
+```text
+docs/supabase.md
+```
+
 ## Ejemplos de API
 
 ```text
 docs/api_ejemplos.md
+```
+
+## Carga inicial de stock
+
+La carga completa desde CSV o Excel, su validacion y aprobacion estan documentadas en:
+
+```text
+docs/carga_stock_fisico.md
 ```

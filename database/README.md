@@ -16,15 +16,36 @@ Stock fisico confirmado
 - Stock bloqueado por incidencia
 ```
 
-## Siguiente paso
+## Migraciones
 
-Crear migraciones formales cuando confirmemos la primera version del modelo.
-
-El esquema SQL inicial esta en:
+Alembic es la unica via activa para crear o modificar el esquema. La configuracion vive en:
 
 ```text
-database/schema/001_initial_schema.sql
+alembic.ini
+database/migrations/
 ```
+
+Aplicar todas las migraciones pendientes:
+
+```bash
+make db-schema
+```
+
+Consultar la version aplicada:
+
+```bash
+make db-current
+```
+
+Crear una migracion despues de modificar los modelos:
+
+```bash
+make db-revision MESSAGE="descripcion breve"
+```
+
+El archivo `database/schema/001_initial_schema.sql` queda congelado como referencia historica. No debe usarse para cambios nuevos.
+
+La configuracion con conexiones separadas para Supabase esta documentada en `docs/supabase.md`.
 
 ## Semilla de productos
 

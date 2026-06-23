@@ -50,10 +50,18 @@ Copiar `.env.example` a `.env`:
 cp .env.example .env
 ```
 
-## 3. Aplicar esquema
+## 3. Aplicar migraciones
 
 ```bash
 make db-schema
+```
+
+Este comando lleva la base hasta la ultima revision de Alembic. Puede ejecutarse varias veces de forma segura.
+
+Comprobar la revision instalada:
+
+```bash
+make db-current
 ```
 
 ## 4. Cargar productos
@@ -102,3 +110,20 @@ Pantalla:
 ```text
 http://127.0.0.1:5173
 ```
+
+## Crear cambios de base de datos
+
+Primero se modifican los modelos de SQLAlchemy. Despues se genera una nueva migracion:
+
+```bash
+make db-revision MESSAGE="agregar campo de ejemplo"
+```
+
+Antes de compartirla se revisa el archivo generado y se valida que el historial completo produzca SQL correcto:
+
+```bash
+make db-validate
+make test
+```
+
+Nunca se modifica una migracion que ya fue aplicada en una base compartida; se crea una nueva.

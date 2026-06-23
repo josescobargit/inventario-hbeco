@@ -37,3 +37,12 @@ http://127.0.0.1:8000/dispatches
 http://127.0.0.1:8000/reservations
 http://127.0.0.1:8000/stock-adjustments
 ```
+
+## Base de datos
+
+El backend usa los modelos de `backend/app/models/` como definicion actual y Alembic para versionar cada cambio de estructura. Desde la raiz del proyecto:
+
+```bash
+make db-schema
+make db-current
+```

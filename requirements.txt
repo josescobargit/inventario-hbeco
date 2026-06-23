@@ -11,3 +11,4 @@ sqlalchemy
 psycopg[binary]
 pydantic-settings
 pytest
+python-multipart

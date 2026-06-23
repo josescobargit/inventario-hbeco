@@ -1,6 +1,6 @@
-# Schema
+# Esquema SQL historico
 
-Esta carpeta contiene el esquema inicial de PostgreSQL.
+Esta carpeta conserva el esquema SQL con el que comenzo el proyecto.
 
 ## Archivo actual
 
@@ -8,12 +8,12 @@ Esta carpeta contiene el esquema inicial de PostgreSQL.
 001_initial_schema.sql
 ```
 
-## Como usarlo mas adelante
+## Importante
 
-Cuando PostgreSQL este creado:
+Este archivo ya no es la fuente activa del esquema y no debe editarse para cambios nuevos. Las migraciones versionadas viven en:
 
-```bash
-psql "$DATABASE_URL" -f database/schema/001_initial_schema.sql
+```text
+database/migrations/
 ```
 
-Este archivo es una base inicial. Cuando instalemos Alembic, estas definiciones se convertiran en migraciones versionadas.
+Para actualizar una base se usa `make db-schema`.

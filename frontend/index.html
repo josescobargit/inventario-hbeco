@@ -4,21 +4,27 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Inventario Operativo</title>
-    <link rel="stylesheet" href="./css/styles.css?v=2" />
+    <link rel="stylesheet" href="./css/styles.css?v=4" />
   </head>
   <body>
     <header class="app-header">
-      <div>
-        <p class="eyebrow">HOME BEAUTY ESSENCES</p>
-        <h1>Inventario operativo</h1>
+      <div class="brand-lockup">
+        <span class="brand-mark" aria-hidden="true">HB</span>
+        <div>
+          <p class="eyebrow">HOME BEAUTY ESSENCES</p>
+          <h1>Inventario operativo</h1>
+        </div>
       </div>
       <div class="toolbar">
-        <span id="current-user-label" class="user-label" hidden></span>
-        <button id="logout-button" class="secondary-button" type="button" hidden>Cerrar sesion</button>
+        <div id="user-summary" class="user-summary" hidden>
+          <span id="current-user-label" class="user-label"></span>
+          <span id="current-role-label" class="role-label"></span>
+        </div>
         <button id="refresh-button" class="icon-button" type="button" aria-label="Actualizar inventario" title="Actualizar inventario">
           &#8635;
         </button>
         <span id="api-status" class="status-pill">API sin verificar</span>
+        <button id="logout-button" class="secondary-button" type="button" hidden>Cerrar sesion</button>
       </div>
     </header>
 
@@ -84,7 +90,49 @@
       <section id="message-panel" class="message-panel" aria-live="polite"></section>
 
       <div id="application-view" hidden>
-      <section class="grid permission-guard" data-permission="view_inventory">
+      <div class="application-shell">
+      <aside class="module-sidebar">
+        <div class="sidebar-heading">
+          <span class="sidebar-kicker">NAVEGACION</span>
+          <strong>Centro operativo</strong>
+        </div>
+        <nav id="module-nav" class="module-nav" aria-label="Modulos del sistema">
+          <button class="nav-item permission-guard" type="button" data-module="overview" data-permission="view_inventory">
+            <span class="nav-icon" aria-hidden="true">01</span><span>Resumen</span>
+          </button>
+          <button class="nav-item permission-guard" type="button" data-module="invoices" data-permission="register_invoice">
+            <span class="nav-icon" aria-hidden="true">02</span><span>Facturacion</span>
+          </button>
+          <button class="nav-item permission-guard" type="button" data-module="reservations" data-permission="manage_reservations">
+            <span class="nav-icon" aria-hidden="true">03</span><span>Reservas</span>
+          </button>
+          <button class="nav-item permission-guard" type="button" data-module="dispatches" data-permission="confirm_dispatch">
+            <span class="nav-icon" aria-hidden="true">04</span><span>Despachos</span>
+          </button>
+          <button class="nav-item permission-guard" type="button" data-module="adjustments" data-permission="request_stock_adjustment">
+            <span class="nav-icon" aria-hidden="true">05</span><span>Ajustes</span>
+          </button>
+          <button class="nav-item permission-guard" type="button" data-module="approvals" data-permission="approve_stock_adjustment">
+            <span class="nav-icon" aria-hidden="true">06</span><span>Aprobaciones</span>
+          </button>
+          <button class="nav-item permission-guard" type="button" data-module="users" data-permission="manage_users">
+            <span class="nav-icon" aria-hidden="true">07</span><span>Usuarios</span>
+          </button>
+        </nav>
+        <p class="sidebar-note">Los modulos se muestran segun el rol de cada usuario.</p>
+      </aside>
+
+      <div class="workspace">
+      <div class="workspace-heading">
+        <div>
+          <p class="workspace-kicker">PANEL DE CONTROL</p>
+          <h2 id="workspace-title">Resumen de inventario</h2>
+          <p id="workspace-description">Disponibilidad operativa y catalogo central.</p>
+        </div>
+        <span id="workspace-role" class="workspace-role"></span>
+      </div>
+
+      <section class="grid module-view permission-guard" data-view="overview" data-permission="view_inventory">
         <article class="metric">
           <span class="label">Stock fisico confirmado</span>
           <strong id="metric-physical">--</strong>
@@ -104,7 +152,7 @@
       </section>
 
       <section class="action-grid">
-        <form id="invoice-form" class="panel form-panel permission-guard" data-permission="register_invoice">
+        <form id="invoice-form" class="panel form-panel module-view permission-guard" data-view="invoices" data-permission="register_invoice">
           <h2>Factura Contifico</h2>
           <div class="form-row two">
             <label>
@@ -125,7 +173,7 @@
           <button class="primary-button" type="submit">Registrar factura</button>
         </form>
 
-        <form id="reservation-form" class="panel form-panel permission-guard" data-permission="manage_reservations">
+        <form id="reservation-form" class="panel form-panel module-view permission-guard" data-view="reservations" data-permission="manage_reservations">
           <h2>Reserva</h2>
           <div class="form-row two">
             <label>
@@ -148,7 +196,7 @@
           <button class="primary-button" type="submit">Crear reserva</button>
         </form>
 
-        <form id="dispatch-form" class="panel form-panel permission-guard" data-permission="confirm_dispatch">
+        <form id="dispatch-form" class="panel form-panel module-view permission-guard" data-view="dispatches" data-permission="confirm_dispatch">
           <h2>Despacho</h2>
           <label>
             Factura
@@ -163,7 +211,7 @@
           <button class="primary-button" type="submit">Confirmar despacho</button>
         </form>
 
-        <form id="adjustment-form" class="panel form-panel permission-guard" data-permission="request_stock_adjustment">
+        <form id="adjustment-form" class="panel form-panel module-view permission-guard" data-view="adjustments" data-permission="request_stock_adjustment">
           <h2>Ajuste de stock</h2>
           <div class="form-row two">
             <label>
@@ -182,7 +230,43 @@
           <button class="primary-button" type="submit">Solicitar ajuste</button>
         </form>
 
-        <form id="approval-form" class="panel form-panel permission-guard" data-permission="approve_stock_adjustment">
+        <form id="stock-import-form" class="panel form-panel module-view permission-guard" data-view="adjustments" data-permission="request_stock_adjustment">
+          <h2>Carga masiva de conteo fisico</h2>
+          <div class="button-row">
+            <button id="stock-template-button" class="secondary-button" type="button">Descargar plantilla</button>
+          </div>
+          <label>
+            Archivo CSV o Excel
+            <input name="stock_file" type="file" accept=".csv,.xlsx" required />
+          </label>
+          <label>
+            Motivo
+            <textarea name="reason" required>Conteo fisico inicial completo</textarea>
+          </label>
+          <button class="secondary-button" type="submit">Revisar archivo</button>
+
+          <section id="stock-import-preview" class="import-preview" hidden>
+            <div id="stock-import-summary" class="import-summary"></div>
+            <div id="stock-import-errors" class="import-errors"></div>
+            <div class="table-wrap">
+              <table class="compact-table">
+                <thead>
+                  <tr>
+                    <th>SKU</th>
+                    <th>Producto</th>
+                    <th>Actual</th>
+                    <th>Conteo</th>
+                    <th>Diferencia</th>
+                  </tr>
+                </thead>
+                <tbody id="stock-import-body"></tbody>
+              </table>
+            </div>
+            <button id="confirm-stock-import" class="primary-button" type="button" disabled>Enviar para aprobacion</button>
+          </section>
+        </form>
+
+        <form id="approval-form" class="panel form-panel module-view permission-guard" data-view="approvals" data-permission="approve_stock_adjustment">
           <h2>Decision de ajuste</h2>
           <label>
             Solicitud
@@ -197,9 +281,47 @@
             <button class="danger-button" type="submit" data-decision="reject">Rechazar</button>
           </div>
         </form>
+
+        <form id="bulk-approval-form" class="panel form-panel module-view permission-guard" data-view="approvals" data-permission="approve_stock_adjustment">
+          <h2>Decision de conteo masivo</h2>
+          <label>
+            Solicitud
+            <input name="approval_id" type="number" min="1" required />
+          </label>
+          <label>
+            Motivo
+            <textarea name="reason" required>Conteo completo revisado contra el documento de bodega</textarea>
+          </label>
+          <div class="button-row">
+            <button class="primary-button" type="submit" data-decision="approve">Aprobar conteo</button>
+            <button class="danger-button" type="submit" data-decision="reject">Rechazar conteo</button>
+          </div>
+        </form>
+
+        <section class="panel module-view permission-guard" data-view="approvals" data-permission="approve_stock_adjustment">
+          <div class="table-heading">
+            <h2>Conteos masivos</h2>
+            <button id="refresh-stock-imports" class="icon-button" type="button" aria-label="Actualizar conteos" title="Actualizar conteos">&#8635;</button>
+          </div>
+          <div class="table-wrap">
+            <table class="compact-table">
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Estado</th>
+                  <th>Productos</th>
+                  <th>Unidades</th>
+                  <th>Motivo</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="stock-import-requests-body"></tbody>
+            </table>
+          </div>
+        </section>
       </section>
 
-      <section class="permission-guard user-management" data-permission="manage_users">
+      <section class="permission-guard user-management module-view" data-view="users" data-permission="manage_users">
         <form id="user-create-form" class="panel form-panel">
           <h2>Nuevo usuario</h2>
           <label>
@@ -311,8 +433,14 @@
         </section>
       </section>
 
-      <section class="panel table-panel permission-guard" data-permission="view_inventory">
-        <h2>Productos</h2>
+      <section class="panel table-panel permission-guard module-view" data-view="overview" data-permission="view_inventory">
+        <div class="table-heading">
+          <div>
+            <p class="workspace-kicker">CATALOGO ACTIVO</p>
+            <h2>Productos</h2>
+          </div>
+          <span id="product-count-badge" class="table-badge">0 productos</span>
+        </div>
         <div class="table-wrap">
           <table>
             <thead>
@@ -336,8 +464,10 @@
         </div>
       </section>
       </div>
+      </div>
+      </div>
     </main>
 
-    <script src="./js/app.js?v=2"></script>
+    <script src="./js/app.js?v=4"></script>
   </body>
 </html>

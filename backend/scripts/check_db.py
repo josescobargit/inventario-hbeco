@@ -17,9 +17,14 @@ def main() -> None:
     with engine.connect() as conn:
         version = conn.execute(text("SELECT version()")).scalar_one()
         products = conn.execute(text("SELECT COUNT(*) FROM products")).scalar_one()
+        database_size_bytes = conn.execute(
+            text("SELECT pg_database_size(current_database())")
+        ).scalar_one()
     print("database=ok")
     print(f"version={version}")
     print(f"products={products}")
+    print(f"database_size_bytes={database_size_bytes}")
+    print(f"database_size_mb={database_size_bytes / 1024 / 1024:.2f}")
 
 
 if __name__ == "__main__":

@@ -219,6 +219,43 @@ Ejemplo:
 - Toda decision exige motivo y queda en auditoria.
 - No borra reservas, facturas pendientes ni incidencias.
 
+## Plantilla y vista previa de conteo masivo
+
+```text
+GET /stock-imports/template
+POST /stock-imports/preview
+```
+
+La vista previa recibe un archivo `.csv` o `.xlsx` como `multipart/form-data`. Valida que esten todos los productos y devuelve las diferencias sin modificar inventario.
+
+## Solicitar conteo masivo
+
+```text
+POST /stock-imports
+```
+
+```json
+{
+  "reason": "Conteo fisico inicial completo",
+  "lines": [
+    {"sku": "AE001", "physical_confirmed": 120},
+    {"sku": "AE002", "physical_confirmed": 96}
+  ]
+}
+```
+
+El ejemplo es abreviado; la solicitud real debe contener todos los productos activos.
+
+## Aprobar o rechazar conteo masivo
+
+```text
+GET /stock-imports
+POST /stock-imports/{approval_id}/approve
+POST /stock-imports/{approval_id}/reject
+```
+
+La decision exige motivo. La aprobacion actualiza todo el conteo en una transaccion y genera movimientos y auditoria por producto.
+
 ## Crear usuario
 
 Solo el rol principal puede ejecutar:
