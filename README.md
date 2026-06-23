@@ -87,6 +87,8 @@ docs/supabase.md
 docs/api_ejemplos.md
 ```
 
+La interfaz incluye seguimiento compartido de facturas, reservas y pendientes de despacho.
+
 ## Carga inicial de stock
 
 La carga completa desde CSV o Excel, su validacion y aprobacion estan documentadas en:

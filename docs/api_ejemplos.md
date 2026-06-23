@@ -321,3 +321,15 @@ POST /users/{user_id}/reset-password
 ```
 
 El restablecimiento cierra las sesiones existentes y obliga al usuario a cambiar la clave provisional.
+
+## Consultar seguimiento operativo
+
+Los usuarios con permiso para ver el inventario pueden consultar:
+
+```text
+GET /invoices
+GET /reservations
+GET /dispatches/pending
+```
+
+Las facturas muestran sus unidades totales, despachadas, faltantes y pendientes. Las reservas incluyen producto, cliente, estado y responsable. El ultimo endpoint devuelve solamente las lineas que aun tienen unidades pendientes de despacho.

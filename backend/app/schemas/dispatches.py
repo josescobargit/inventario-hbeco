@@ -1,3 +1,6 @@
+from datetime import datetime
+from typing import Optional
+
 from pydantic import BaseModel, Field
 
 
@@ -24,3 +27,17 @@ class DispatchRead(BaseModel):
     invoice_number: str
     invoice_status: str
     lines: list[DispatchLineRead]
+
+
+class PendingDispatchRead(BaseModel):
+    invoice_id: int
+    invoice_number: str
+    customer_name: Optional[str] = None
+    invoice_status: str
+    sku: str
+    product_name: str
+    invoiced_quantity: int
+    dispatched_quantity: int
+    missing_quantity: int
+    pending_quantity: int
+    registered_at: datetime

@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Inventario Operativo</title>
-    <link rel="stylesheet" href="./css/styles.css?v=4" />
+    <link rel="stylesheet" href="./css/styles.css?v=5" />
   </head>
   <body>
     <header class="app-header">
@@ -100,23 +100,26 @@
           <button class="nav-item permission-guard" type="button" data-module="overview" data-permission="view_inventory">
             <span class="nav-icon" aria-hidden="true">01</span><span>Resumen</span>
           </button>
+          <button class="nav-item permission-guard" type="button" data-module="tracking" data-permission="view_inventory">
+            <span class="nav-icon" aria-hidden="true">02</span><span>Seguimiento</span>
+          </button>
           <button class="nav-item permission-guard" type="button" data-module="invoices" data-permission="register_invoice">
-            <span class="nav-icon" aria-hidden="true">02</span><span>Facturacion</span>
+            <span class="nav-icon" aria-hidden="true">03</span><span>Facturacion</span>
           </button>
           <button class="nav-item permission-guard" type="button" data-module="reservations" data-permission="manage_reservations">
-            <span class="nav-icon" aria-hidden="true">03</span><span>Reservas</span>
+            <span class="nav-icon" aria-hidden="true">04</span><span>Reservas</span>
           </button>
           <button class="nav-item permission-guard" type="button" data-module="dispatches" data-permission="confirm_dispatch">
-            <span class="nav-icon" aria-hidden="true">04</span><span>Despachos</span>
+            <span class="nav-icon" aria-hidden="true">05</span><span>Despachos</span>
           </button>
           <button class="nav-item permission-guard" type="button" data-module="adjustments" data-permission="request_stock_adjustment">
-            <span class="nav-icon" aria-hidden="true">05</span><span>Ajustes</span>
+            <span class="nav-icon" aria-hidden="true">06</span><span>Ajustes</span>
           </button>
           <button class="nav-item permission-guard" type="button" data-module="approvals" data-permission="approve_stock_adjustment">
-            <span class="nav-icon" aria-hidden="true">06</span><span>Aprobaciones</span>
+            <span class="nav-icon" aria-hidden="true">07</span><span>Aprobaciones</span>
           </button>
           <button class="nav-item permission-guard" type="button" data-module="users" data-permission="manage_users">
-            <span class="nav-icon" aria-hidden="true">07</span><span>Usuarios</span>
+            <span class="nav-icon" aria-hidden="true">08</span><span>Usuarios</span>
           </button>
         </nav>
         <p class="sidebar-note">Los modulos se muestran segun el rol de cada usuario.</p>
@@ -149,6 +152,41 @@
           <span class="label">Bloqueado por incidencia</span>
           <strong id="metric-blocked">--</strong>
         </article>
+      </section>
+
+      <section class="tracking-grid module-view permission-guard" data-view="tracking" data-permission="view_inventory">
+        <section class="panel tracking-panel">
+          <div class="table-heading">
+            <h2>Facturas recientes</h2>
+            <button id="refresh-tracking" class="icon-button" type="button" aria-label="Actualizar seguimiento" title="Actualizar seguimiento">&#8635;</button>
+          </div>
+          <div class="table-wrap">
+            <table class="compact-table">
+              <thead><tr><th>Factura</th><th>Cliente</th><th>Estado</th><th>Total</th><th>Pendiente</th><th>Registrada</th></tr></thead>
+              <tbody id="tracking-invoices-body"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="panel tracking-panel">
+          <div class="table-heading"><h2>Reservas</h2></div>
+          <div class="table-wrap">
+            <table class="compact-table">
+              <thead><tr><th>ID</th><th>SKU</th><th>Cliente</th><th>Unidades</th><th>Estado</th><th>Creada</th></tr></thead>
+              <tbody id="tracking-reservations-body"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="panel tracking-panel">
+          <div class="table-heading"><h2>Pendiente de despacho</h2></div>
+          <div class="table-wrap">
+            <table class="compact-table">
+              <thead><tr><th>Factura</th><th>Cliente</th><th>SKU</th><th>Facturado</th><th>Despachado</th><th>Pendiente</th></tr></thead>
+              <tbody id="tracking-dispatches-body"></tbody>
+            </table>
+          </div>
+        </section>
       </section>
 
       <section class="action-grid">
@@ -468,6 +506,6 @@
       </div>
     </main>
 
-    <script src="./js/app.js?v=4"></script>
+    <script src="./js/app.js?v=5"></script>
   </body>
 </html>

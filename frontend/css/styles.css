@@ -579,7 +579,8 @@ td:nth-child(n + 4) {
 
 .grid.module-view.active.allowed,
 .form-panel.module-view.active.allowed,
-.user-management.module-view.active.allowed {
+.user-management.module-view.active.allowed,
+.tracking-grid.module-view.active.allowed {
   display: grid !important;
 }
 
@@ -607,6 +608,15 @@ td:nth-child(n + 4) {
 
 .table-heading h2 {
   margin: 0;
+}
+
+.tracking-grid {
+  gap: 14px;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.tracking-panel {
+  min-width: 0;
 }
 
 .import-preview {

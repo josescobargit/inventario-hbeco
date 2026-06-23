@@ -1,20 +1,30 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.auth import require_permission
 from app.core.permissions import Permission
 from app.db.session import get_db
 from app.models.inventory import User
-from app.schemas.dispatches import DispatchCreate, DispatchRead
+from app.schemas.dispatches import DispatchCreate, DispatchRead, PendingDispatchRead
 from app.services.dispatching import (
     DispatchQuantityError,
     DispatchStockError,
     InvoiceNotFoundError,
     confirm_dispatch,
 )
+from app.services.tracking import list_pending_dispatches
 
 
 router = APIRouter(prefix="/dispatches", tags=["dispatches"])
+
+
+@router.get("/pending", response_model=list[PendingDispatchRead])
+def read_pending_dispatches(
+    limit: int = Query(default=500, ge=1, le=1000),
+    db: Session = Depends(get_db),
+    _: User = Depends(require_permission(Permission.view_inventory)),
+) -> list[PendingDispatchRead]:
+    return list_pending_dispatches(db, limit)
 
 
 @router.post("", response_model=DispatchRead, status_code=status.HTTP_201_CREATED)

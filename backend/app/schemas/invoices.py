@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Optional
 
 from pydantic import BaseModel, Field
@@ -30,3 +31,16 @@ class InvoiceRead(BaseModel):
     invoice_number: str
     status: str
     lines: list[InvoiceLineRead]
+
+
+class InvoiceSummaryRead(BaseModel):
+    id: int
+    invoice_number: str
+    customer_name: Optional[str] = None
+    status: str
+    total_units: int
+    dispatched_units: int
+    missing_units: int
+    pending_units: int
+    registered_by: Optional[str] = None
+    registered_at: datetime

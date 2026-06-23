@@ -37,6 +37,10 @@ const userUpdateForm = document.querySelector("#user-update-form");
 const userResetForm = document.querySelector("#user-reset-form");
 const usersBody = document.querySelector("#users-body");
 const productCountBadge = document.querySelector("#product-count-badge");
+const refreshTrackingButton = document.querySelector("#refresh-tracking");
+const trackingInvoicesBody = document.querySelector("#tracking-invoices-body");
+const trackingReservationsBody = document.querySelector("#tracking-reservations-body");
+const trackingDispatchesBody = document.querySelector("#tracking-dispatches-body");
 const moduleButtons = [...document.querySelectorAll("[data-module]")];
 const moduleViews = [...document.querySelectorAll(".module-view")];
 const workspaceTitle = document.querySelector("#workspace-title");
@@ -59,6 +63,10 @@ const MODULE_META = {
   overview: {
     title: "Resumen de inventario",
     description: "Disponibilidad operativa, indicadores y catalogo central.",
+  },
+  tracking: {
+    title: "Seguimiento operativo",
+    description: "Consulta facturas, reservas y productos pendientes de despacho.",
   },
   invoices: {
     title: "Facturacion",
@@ -88,6 +96,14 @@ const MODULE_META = {
 
 function formatNumber(value) {
   return Number(value || 0).toLocaleString("es-EC");
+}
+
+function formatDate(value) {
+  if (!value) return "-";
+  return new Intl.DateTimeFormat("es-EC", {
+    dateStyle: "short",
+    timeStyle: "short",
+  }).format(new Date(value));
 }
 
 function escapeHtml(value) {
@@ -411,6 +427,81 @@ async function loadAvailability() {
       '<tr><td colspan="8">La API responde, pero la disponibilidad aun no esta lista.</td></tr>';
     setMessage(error.message, "error");
   }
+}
+
+function renderInvoiceTracking(rows) {
+  if (!rows.length) {
+    trackingInvoicesBody.innerHTML = '<tr><td colspan="6">No hay facturas registradas.</td></tr>';
+    return;
+  }
+  trackingInvoicesBody.innerHTML = rows
+    .map(
+      (row) => `
+        <tr>
+          <td>${escapeHtml(row.invoice_number)}</td>
+          <td>${escapeHtml(row.customer_name || "Sin cliente")}</td>
+          <td>${escapeHtml(row.status)}</td>
+          <td>${formatNumber(row.total_units)}</td>
+          <td>${formatNumber(row.pending_units)}</td>
+          <td>${formatDate(row.registered_at)}</td>
+        </tr>
+      `,
+    )
+    .join("");
+}
+
+function renderReservationTracking(rows) {
+  if (!rows.length) {
+    trackingReservationsBody.innerHTML = '<tr><td colspan="6">No hay reservas registradas.</td></tr>';
+    return;
+  }
+  trackingReservationsBody.innerHTML = rows
+    .map(
+      (row) => `
+        <tr>
+          <td>${row.id}</td>
+          <td title="${escapeHtml(row.product_name)}">${escapeHtml(row.sku)}</td>
+          <td>${escapeHtml(row.customer_name || "Sin cliente")}</td>
+          <td>${formatNumber(row.quantity)}</td>
+          <td>${escapeHtml(row.status)}</td>
+          <td>${formatDate(row.created_at)}</td>
+        </tr>
+      `,
+    )
+    .join("");
+}
+
+function renderPendingDispatches(rows) {
+  if (!rows.length) {
+    trackingDispatchesBody.innerHTML = '<tr><td colspan="6">No hay productos pendientes de despacho.</td></tr>';
+    return;
+  }
+  trackingDispatchesBody.innerHTML = rows
+    .map(
+      (row) => `
+        <tr>
+          <td>${escapeHtml(row.invoice_number)}</td>
+          <td>${escapeHtml(row.customer_name || "Sin cliente")}</td>
+          <td title="${escapeHtml(row.product_name)}">${escapeHtml(row.sku)}</td>
+          <td>${formatNumber(row.invoiced_quantity)}</td>
+          <td>${formatNumber(row.dispatched_quantity)}</td>
+          <td>${formatNumber(row.pending_quantity)}</td>
+        </tr>
+      `,
+    )
+    .join("");
+}
+
+async function loadTracking() {
+  const [invoices, reservations, dispatches] = await Promise.all([
+    apiRequest("/invoices"),
+    apiRequest("/reservations"),
+    apiRequest("/dispatches/pending"),
+  ]);
+  renderInvoiceTracking(invoices);
+  renderReservationTracking(reservations);
+  renderPendingDispatches(dispatches);
+  setMessage("Seguimiento actualizado.", "success");
 }
 
 async function checkApi() {
@@ -831,6 +922,9 @@ document.addEventListener("click", (event) => {
   const moduleButton = event.target.closest("[data-module]");
   if (moduleButton) {
     activateModule(moduleButton.dataset.module);
+    if (moduleButton.dataset.module === "tracking") {
+      loadTracking().catch((error) => setMessage(error.message, "error"));
+    }
     return;
   }
 
@@ -855,6 +949,9 @@ document.addEventListener("click", (event) => {
 });
 
 refreshButton.addEventListener("click", loadAvailability);
+refreshTrackingButton.addEventListener("click", () => {
+  loadTracking().catch((error) => setMessage(error.message, "error"));
+});
 
 addLine(invoiceLines, "invoice");
 addLine(dispatchLines, "dispatch");

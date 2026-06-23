@@ -26,3 +26,9 @@ class ReservationRead(BaseModel):
     customer_name: Optional[str] = None
     reason: str
     created_at: datetime
+
+
+class ReservationSummaryRead(ReservationRead):
+    product_name: str
+    created_by: Optional[str] = None
+    released_at: Optional[datetime] = None

@@ -1,11 +1,16 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.auth import require_permission
 from app.core.permissions import Permission
 from app.db.session import get_db
 from app.models.inventory import User
-from app.schemas.reservations import ReservationCreate, ReservationRead, ReservationRelease
+from app.schemas.reservations import (
+    ReservationCreate,
+    ReservationRead,
+    ReservationRelease,
+    ReservationSummaryRead,
+)
 from app.services.reservations import (
     ReservationInactiveError,
     ReservationNotFoundError,
@@ -13,9 +18,19 @@ from app.services.reservations import (
     create_reservation,
     release_reservation,
 )
+from app.services.tracking import list_reservation_summaries
 
 
 router = APIRouter(prefix="/reservations", tags=["reservations"])
+
+
+@router.get("", response_model=list[ReservationSummaryRead])
+def read_reservations(
+    limit: int = Query(default=100, ge=1, le=500),
+    db: Session = Depends(get_db),
+    _: User = Depends(require_permission(Permission.view_inventory)),
+) -> list[ReservationSummaryRead]:
+    return list_reservation_summaries(db, limit)
 
 
 @router.post("", response_model=ReservationRead, status_code=status.HTTP_201_CREATED)
