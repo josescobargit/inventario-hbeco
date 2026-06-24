@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Inventario Operativo</title>
-    <link rel="stylesheet" href="./css/styles.css?v=7" />
+    <link rel="stylesheet" href="./css/styles.css?v=8" />
   </head>
   <body data-api-base-url="">
     <header class="app-header">
@@ -202,10 +202,27 @@
         </div>
         <div class="table-wrap">
           <table class="compact-table">
-            <thead><tr><th>ID</th><th>Cadena</th><th>OC</th><th>Estado</th><th>Unidades</th><th>Lineas</th><th>Creada</th></tr></thead>
+            <thead><tr><th>ID</th><th>Cadena</th><th>OC</th><th>Estado</th><th>Unidades</th><th>Entrega</th><th>Destino</th><th></th></tr></thead>
             <tbody id="purchase-orders-body"></tbody>
           </table>
         </div>
+        <section id="purchase-order-detail" class="document-detail" hidden>
+          <div class="table-heading">
+            <div>
+              <p class="workspace-kicker">TRAZABILIDAD</p>
+              <h3 id="purchase-order-detail-title"></h3>
+            </div>
+            <button id="close-purchase-order-detail" class="icon-button" type="button" aria-label="Cerrar detalle" title="Cerrar detalle">&times;</button>
+          </div>
+          <div id="purchase-order-detail-meta" class="document-meta"></div>
+          <div class="table-wrap">
+            <table class="compact-table">
+              <thead><tr><th>SKU</th><th>Producto</th><th>Pedido</th><th>Reservado</th><th>Facturado</th><th>Despachado</th><th>Faltante despacho</th><th>Por facturar</th></tr></thead>
+              <tbody id="purchase-order-detail-lines"></tbody>
+            </table>
+          </div>
+          <div id="purchase-order-timeline" class="timeline"></div>
+        </section>
       </section>
 
       <section class="panel module-view permission-guard" data-view="incidents" data-permission="view_inventory">
@@ -234,6 +251,26 @@
               <input name="order_number" required />
             </label>
           </div>
+          <div class="form-row two">
+            <label>
+              Fecha OC
+              <input name="order_date" type="date" />
+            </label>
+            <label>
+              Fecha maxima de entrega
+              <input name="delivery_due_date" type="date" />
+            </label>
+          </div>
+          <div class="form-row two">
+            <label>
+              Referencia adicional
+              <input name="external_reference" />
+            </label>
+            <label>
+              Destino
+              <input name="destination" />
+            </label>
+          </div>
           <datalist id="chain-options">
             <option value="TIA"></option>
             <option value="FAVORITA"></option>
@@ -259,6 +296,10 @@
             Motivo
             <textarea name="reason" required>Registro inicial de OC para trazabilidad interna</textarea>
           </label>
+          <label class="check-row">
+            <input name="reserve_stock" type="checkbox" />
+            Reservar todo el stock disponible para esta OC al guardar
+          </label>
           <button class="primary-button" type="submit">Guardar OC</button>
         </form>
 
@@ -273,11 +314,30 @@
             <div id="purchase-order-preview-summary" class="import-summary"></div>
             <div class="table-wrap">
               <table class="compact-table">
-                <thead><tr><th>SKU</th><th>Producto</th><th>Unidades</th><th>Texto detectado</th></tr></thead>
+                <thead><tr><th>OC</th><th>SKU</th><th>Producto</th><th>Cajas</th><th>UXC</th><th>Pedido</th><th>Disponible</th><th>Faltante</th><th>Estado</th><th></th></tr></thead>
                 <tbody id="purchase-order-preview-body"></tbody>
               </table>
             </div>
-            <button id="apply-purchase-order-preview" class="primary-button" type="button">Pasar al formulario OC</button>
+          </section>
+        </form>
+
+        <form id="invoice-upload-form" class="panel form-panel module-view permission-guard" data-view="invoices" data-permission="register_invoice">
+          <h2>Subir factura de Contifico</h2>
+          <label>
+            Factura PDF
+            <input name="invoice_file" type="file" accept=".pdf,application/pdf" required />
+          </label>
+          <button class="secondary-button" type="submit">Comparar con la OC</button>
+          <section id="invoice-file-preview" class="import-preview" hidden>
+            <div id="invoice-file-summary" class="import-summary"></div>
+            <div id="invoice-file-warnings" class="import-errors"></div>
+            <div class="table-wrap">
+              <table class="compact-table">
+                <thead><tr><th>SKU</th><th>Producto</th><th>Factura</th><th>Pedido OC</th><th>Ya facturado</th><th>Saldo anterior</th><th>Saldo posterior</th><th>Disponible</th><th>Resultado</th></tr></thead>
+                <tbody id="invoice-file-preview-body"></tbody>
+              </table>
+            </div>
+            <button id="apply-invoice-file-preview" class="primary-button" type="button">Pasar al formulario de factura</button>
           </section>
         </form>
 
@@ -293,6 +353,10 @@
               <input name="customer_name" />
             </label>
           </div>
+          <label>
+            ID de la OC
+            <input name="purchase_order_id" type="number" min="1" required />
+          </label>
           <div id="invoice-lines" class="line-list"></div>
           <button class="secondary-button" type="button" data-add-line="invoice">+ Producto</button>
           <label>
@@ -323,7 +387,7 @@
             <div id="bulk-invoice-summary" class="import-summary"></div>
             <div class="table-wrap">
               <table class="compact-table">
-                <thead><tr><th>Bloque</th><th>Factura</th><th>Unidades</th><th>Productos</th></tr></thead>
+                <thead><tr><th>Bloque</th><th>Factura</th><th>ID OC</th><th>Unidades</th><th>Productos</th></tr></thead>
                 <tbody id="bulk-invoice-body"></tbody>
               </table>
             </div>
@@ -628,6 +692,6 @@
 
     <datalist id="product-options"></datalist>
 
-    <script src="./js/app.js?v=7"></script>
+    <script src="./js/app.js?v=8"></script>
   </body>
 </html>

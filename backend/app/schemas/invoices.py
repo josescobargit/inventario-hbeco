@@ -14,8 +14,11 @@ class InvoiceLineCreate(BaseModel):
 class InvoiceCreate(BaseModel):
     invoice_number: str
     customer_name: Optional[str] = None
-    purchase_order_id: Optional[int] = None
+    purchase_order_id: int = Field(gt=0)
     contifico_source_id: Optional[str] = None
+    authorization_number: Optional[str] = None
+    issued_at: Optional[datetime] = None
+    total_amount: Optional[float] = None
     reason: str = Field(min_length=3)
     notes: Optional[str] = None
     lines: list[InvoiceLineCreate] = Field(min_length=1)
@@ -67,3 +70,30 @@ class BulkInvoicePreviewRead(BaseModel):
     invoice_count: int
     lines_total: int
     invoices: list[BulkInvoicePreviewItemRead]
+
+
+class InvoiceFilePreviewLineRead(BaseModel):
+    sku: str
+    product_name: str
+    quantity: int
+    ordered_quantity: int
+    previously_invoiced_quantity: int
+    remaining_before_invoice: int
+    remaining_after_invoice: int
+    available_for_this_order: int
+    can_register: bool
+
+
+class InvoiceFilePreviewRead(BaseModel):
+    invoice_number: str
+    authorization_number: Optional[str] = None
+    issued_at: Optional[datetime] = None
+    customer_name: Optional[str] = None
+    purchase_order_number: Optional[str] = None
+    purchase_order_id: Optional[int] = None
+    purchase_order_reference: Optional[str] = None
+    total_amount: Optional[float] = None
+    source_filename: str
+    can_register: bool
+    warnings: list[str]
+    lines: list[InvoiceFilePreviewLineRead]

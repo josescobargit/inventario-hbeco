@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from sqlalchemy.orm import Session
 
 from app.auth import require_permission
@@ -6,17 +6,22 @@ from app.core.permissions import Permission
 from app.db.session import get_db
 from app.models.inventory import User
 from app.parsers.invoice_bulk import BulkInvoiceParseError
+from app.parsers.invoice_pdf import InvoiceFileError, parse_contifico_invoice_pdf
 from app.schemas.invoices import (
     BulkInvoicePreviewRead,
     BulkInvoicePreviewRequest,
     InvoiceCreate,
+    InvoiceFilePreviewRead,
     InvoiceRead,
     InvoiceSummaryRead,
 )
 from app.services.invoice_bulk import BulkInvoiceUnknownProductError, build_bulk_invoice_preview
+from app.services.invoice_files import InvoiceFileUnknownProductError, build_invoice_file_preview
 from app.services.invoicing import (
     InsufficientStockError,
     InvoiceAlreadyExistsError,
+    InvoiceExceedsPurchaseOrderError,
+    InvoicePurchaseOrderError,
     UnknownProductError,
     register_invoice,
 )
@@ -24,6 +29,24 @@ from app.services.tracking import list_invoice_summaries
 
 
 router = APIRouter(prefix="/invoices", tags=["invoices"])
+
+
+@router.post("/preview-file", response_model=InvoiceFilePreviewRead)
+async def preview_invoice_file(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    _: User = Depends(require_permission(Permission.register_invoice)),
+) -> InvoiceFilePreviewRead:
+    try:
+        parsed = parse_contifico_invoice_pdf(file.filename or "factura.pdf", await file.read())
+        return build_invoice_file_preview(db, parsed)
+    except InvoiceFileError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except InvoiceFileUnknownProductError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"SKU de la factura no encontrados: {', '.join(exc.skus)}.",
+        ) from exc
 
 
 @router.get("", response_model=list[InvoiceSummaryRead])
@@ -74,4 +97,14 @@ def create_invoice(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Stock insuficiente para {exc.sku}. Pedido: {exc.requested}. Disponible: {exc.available}.",
+        ) from exc
+    except InvoicePurchaseOrderError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except InvoiceExceedsPurchaseOrderError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"La factura excede la OC para {exc.sku}. Factura: {exc.requested}. "
+                f"Pendiente en OC: {exc.remaining}."
+            ),
         ) from exc

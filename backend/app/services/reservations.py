@@ -60,6 +60,7 @@ def create_reservation(
         purchase_order_id=reservation_data.purchase_order_id,
         customer_name=reservation_data.customer_name,
         quantity=requested,
+        original_quantity=requested,
         reason=reservation_data.reason,
         created_by_user_id=actor_user_id,
     )

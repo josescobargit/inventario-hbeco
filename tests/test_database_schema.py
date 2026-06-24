@@ -46,7 +46,7 @@ def test_available_stock_is_computed_by_the_database():
 def test_alembic_has_one_linear_head():
     scripts = ScriptDirectory.from_config(Config("alembic.ini"))
 
-    assert scripts.get_heads() == ["20260622_0001"]
+    assert scripts.get_heads() == ["20260623_0002"]
 
 
 def test_migrations_use_the_dedicated_url_when_configured():

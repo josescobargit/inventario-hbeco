@@ -7,6 +7,7 @@ const metricBlocked = document.querySelector("#metric-blocked");
 const refreshButton = document.querySelector("#refresh-button");
 const messagePanel = document.querySelector("#message-panel");
 const invoiceForm = document.querySelector("#invoice-form");
+const invoiceUploadForm = document.querySelector("#invoice-upload-form");
 const bulkInvoiceForm = document.querySelector("#bulk-invoice-form");
 const reservationForm = document.querySelector("#reservation-form");
 const dispatchForm = document.querySelector("#dispatch-form");
@@ -30,7 +31,11 @@ const purchaseOrderLines = document.querySelector("#purchase-order-lines");
 const purchaseOrderPreview = document.querySelector("#purchase-order-preview");
 const purchaseOrderPreviewSummary = document.querySelector("#purchase-order-preview-summary");
 const purchaseOrderPreviewBody = document.querySelector("#purchase-order-preview-body");
-const applyPurchaseOrderPreviewButton = document.querySelector("#apply-purchase-order-preview");
+const invoiceFilePreview = document.querySelector("#invoice-file-preview");
+const invoiceFileSummary = document.querySelector("#invoice-file-summary");
+const invoiceFileWarnings = document.querySelector("#invoice-file-warnings");
+const invoiceFilePreviewBody = document.querySelector("#invoice-file-preview-body");
+const applyInvoiceFilePreviewButton = document.querySelector("#apply-invoice-file-preview");
 const bulkInvoicePreview = document.querySelector("#bulk-invoice-preview");
 const bulkInvoiceSummary = document.querySelector("#bulk-invoice-summary");
 const bulkInvoiceBody = document.querySelector("#bulk-invoice-body");
@@ -54,6 +59,12 @@ const trackingInvoicesBody = document.querySelector("#tracking-invoices-body");
 const trackingReservationsBody = document.querySelector("#tracking-reservations-body");
 const trackingDispatchesBody = document.querySelector("#tracking-dispatches-body");
 const purchaseOrdersBody = document.querySelector("#purchase-orders-body");
+const purchaseOrderDetail = document.querySelector("#purchase-order-detail");
+const purchaseOrderDetailTitle = document.querySelector("#purchase-order-detail-title");
+const purchaseOrderDetailMeta = document.querySelector("#purchase-order-detail-meta");
+const purchaseOrderDetailLines = document.querySelector("#purchase-order-detail-lines");
+const purchaseOrderTimeline = document.querySelector("#purchase-order-timeline");
+const closePurchaseOrderDetailButton = document.querySelector("#close-purchase-order-detail");
 const incidentsBody = document.querySelector("#incidents-body");
 const refreshPurchaseOrdersButton = document.querySelector("#refresh-purchase-orders");
 const refreshIncidentsButton = document.querySelector("#refresh-incidents");
@@ -79,6 +90,7 @@ let currentUser = null;
 let currentStockImportPreview = null;
 let currentPurchaseOrderPreview = null;
 let currentBulkInvoicePreview = null;
+let currentInvoiceFilePreview = null;
 let productCatalog = [];
 let productLookup = { bySku: new Map(), byName: new Map() };
 
@@ -143,6 +155,12 @@ function formatDate(value) {
     dateStyle: "short",
     timeStyle: "short",
   }).format(new Date(value));
+}
+
+function formatDateOnly(value) {
+  if (!value) return "-";
+  const [year, month, day] = String(value).slice(0, 10).split("-");
+  return year && month && day ? `${day}/${month}/${year}` : String(value);
 }
 
 function escapeHtml(value) {
@@ -620,7 +638,7 @@ function renderPendingDispatches(rows) {
 
 function renderPurchaseOrders(rows) {
   if (!rows.length) {
-    purchaseOrdersBody.innerHTML = '<tr><td colspan="7">No hay OCs registradas.</td></tr>';
+    purchaseOrdersBody.innerHTML = '<tr><td colspan="8">No hay OCs registradas.</td></tr>';
     return;
   }
   purchaseOrdersBody.innerHTML = rows
@@ -632,8 +650,9 @@ function renderPurchaseOrders(rows) {
           <td>${escapeHtml(row.order_number)}</td>
           <td>${escapeHtml(row.status)}</td>
           <td>${formatNumber(row.total_units)}</td>
-          <td>${formatNumber(row.line_count)}</td>
-          <td>${formatDate(row.created_at)}</td>
+          <td>${formatDateOnly(row.delivery_due_date)}</td>
+          <td>${escapeHtml(row.destination || "-")}</td>
+          <td><button class="secondary-button compact-action" type="button" data-view-purchase-order="${row.id}">Ver historia</button></td>
         </tr>
       `,
     )
@@ -666,19 +685,110 @@ function renderIncidents(rows) {
 function renderPurchaseOrderPreview(preview) {
   currentPurchaseOrderPreview = preview;
   purchaseOrderPreview.hidden = false;
-  purchaseOrderPreviewSummary.textContent = `${preview.detected_chain_name || "Cadena no detectada"} · ${formatNumber(preview.total_units)} unidades · ${preview.line_count} productos`;
-  purchaseOrderPreviewBody.innerHTML = preview.lines
+  purchaseOrderPreviewSummary.textContent = `${preview.order_count} ${preview.order_count === 1 ? "OC detectada" : "OC detectadas"} en ${preview.source_filename}`;
+  purchaseOrderPreviewBody.innerHTML = preview.orders
+    .flatMap((order, orderIndex) =>
+      order.lines.map(
+        (line, lineIndex) => `
+        <tr>
+          <td>${escapeHtml(order.order_number)}</td>
+          <td>${escapeHtml(line.sku)}</td>
+          <td>${escapeHtml(line.product_name)}</td>
+          <td>${line.quantity_cases == null ? "-" : formatNumber(line.quantity_cases)}</td>
+          <td>${formatNumber(line.units_per_case)}</td>
+          <td>${formatNumber(line.requested_quantity)}</td>
+          <td>${formatNumber(line.available_to_invoice)}</td>
+          <td>${formatNumber(line.missing_quantity)}</td>
+          <td><span class="availability-state ${escapeHtml(line.availability_status)}">${escapeHtml(line.availability_status)}</span></td>
+          <td>${lineIndex === 0 ? `<button class="secondary-button compact-action" type="button" data-apply-order-index="${orderIndex}">Usar OC</button>` : ""}</td>
+        </tr>
+      `,
+      ),
+    )
+    .join("");
+}
+
+function applyPurchaseOrderPreview(orderIndex) {
+  const order = currentPurchaseOrderPreview?.orders?.[orderIndex];
+  if (!order) return;
+  purchaseOrderForm.elements.chain_name.value = order.chain_name;
+  purchaseOrderForm.elements.order_number.value = order.order_number;
+  purchaseOrderForm.elements.order_date.value = order.order_date || "";
+  purchaseOrderForm.elements.delivery_due_date.value = order.delivery_due_date || "";
+  purchaseOrderForm.elements.external_reference.value = order.external_reference || "";
+  purchaseOrderForm.elements.destination.value = order.destination || "";
+  purchaseOrderForm.elements.notes.value = "OC detectada y revisada antes de su registro";
+  purchaseOrderLines.innerHTML = "";
+  order.lines.forEach((line) => {
+    addLine(purchaseOrderLines, "purchase-order");
+    const row = purchaseOrderLines.querySelector(".line-item:last-child");
+    row.querySelector('[name="sku"]').value = `${line.sku} - ${line.product_name}`;
+    row.querySelector('[name="requested_quantity"]').value = String(line.requested_quantity);
+    row.querySelector('[name="original_description"]').value = line.original_description || "";
+  });
+  setMessage(`OC ${order.order_number} lista para confirmar. Elige si deseas reservar antes de guardar.`, "success");
+}
+
+function renderInvoiceFilePreview(preview) {
+  currentInvoiceFilePreview = preview;
+  invoiceFilePreview.hidden = false;
+  invoiceFileSummary.textContent = `${preview.invoice_number} · ${preview.purchase_order_reference || `OC ${preview.purchase_order_number || "no detectada"}`} · ${preview.can_register ? "Lista para registrar" : "Requiere revision"}`;
+  invoiceFileWarnings.innerHTML = preview.warnings.length
+    ? preview.warnings.map((warning) => `<div>${escapeHtml(warning)}</div>`).join("")
+    : "";
+  invoiceFilePreviewBody.innerHTML = preview.lines
     .map(
       (line) => `
         <tr>
           <td>${escapeHtml(line.sku)}</td>
           <td>${escapeHtml(line.product_name)}</td>
-          <td>${formatNumber(line.requested_quantity)}</td>
-          <td>${escapeHtml(line.original_description || "-")}</td>
+          <td>${formatNumber(line.quantity)}</td>
+          <td>${formatNumber(line.ordered_quantity)}</td>
+          <td>${formatNumber(line.previously_invoiced_quantity)}</td>
+          <td>${formatNumber(line.remaining_before_invoice)}</td>
+          <td>${formatNumber(line.remaining_after_invoice)}</td>
+          <td>${formatNumber(line.available_for_this_order)}</td>
+          <td><span class="availability-state ${line.can_register ? "completa" : "sin_stock"}">${line.can_register ? "correcto" : "revisar"}</span></td>
         </tr>
       `,
     )
     .join("");
+  applyInvoiceFilePreviewButton.disabled = !preview.can_register;
+}
+
+async function showPurchaseOrderDetail(purchaseOrderId) {
+  const detail = await apiRequest(`/purchase-orders/${purchaseOrderId}`);
+  purchaseOrderDetail.hidden = false;
+  purchaseOrderDetailTitle.textContent = `${detail.chain_name} / ${detail.order_number}`;
+  purchaseOrderDetailMeta.innerHTML = `
+    <span><strong>Estado</strong>${escapeHtml(detail.status)}</span>
+    <span><strong>Fecha OC</strong>${formatDateOnly(detail.order_date)}</span>
+    <span><strong>Entrega</strong>${formatDateOnly(detail.delivery_due_date)}</span>
+    <span><strong>Destino</strong>${escapeHtml(detail.destination || "-")}</span>
+  `;
+  purchaseOrderDetailLines.innerHTML = detail.lines
+    .map(
+      (line) => `
+        <tr>
+          <td>${escapeHtml(line.sku)}</td><td>${escapeHtml(line.product_name)}</td>
+          <td>${formatNumber(line.requested_quantity)}</td><td>${formatNumber(line.reserved_quantity)}</td>
+          <td>${formatNumber(line.invoiced_quantity)}</td><td>${formatNumber(line.dispatched_quantity)}</td>
+          <td>${formatNumber(line.missing_dispatch_quantity)}</td><td>${formatNumber(line.remaining_to_invoice)}</td>
+        </tr>
+      `,
+    )
+    .join("");
+  purchaseOrderTimeline.innerHTML = detail.events
+    .map(
+      (event) => `
+        <article class="timeline-event">
+          <span class="timeline-marker" aria-hidden="true"></span>
+          <div><strong>${escapeHtml(event.title)}</strong><p>${escapeHtml(event.detail)}</p><small>${formatDate(event.occurred_at)}${event.user_name ? ` · ${escapeHtml(event.user_name)}` : ""}</small></div>
+        </article>
+      `,
+    )
+    .join("");
+  purchaseOrderDetail.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 function renderBulkInvoicePreview(preview) {
@@ -691,6 +801,7 @@ function renderBulkInvoicePreview(preview) {
         <tr>
           <td>${invoice.block_number}</td>
           <td><input type="text" name="bulk_invoice_number" data-block-number="${invoice.block_number}" placeholder="Numero factura ${invoice.block_number}" required /></td>
+          <td><input type="number" min="1" name="bulk_purchase_order_id" data-block-number="${invoice.block_number}" placeholder="ID OC" required /></td>
           <td>${formatNumber(invoice.total_units)}</td>
           <td>${escapeHtml(invoice.lines.map((line) => `${line.quantity} ${line.product_name}`).join(" | "))}</td>
         </tr>
@@ -850,21 +961,6 @@ purchaseOrderUploadForm.addEventListener("submit", async (event) => {
   }
 });
 
-applyPurchaseOrderPreviewButton.addEventListener("click", () => {
-  if (!currentPurchaseOrderPreview) return;
-  purchaseOrderForm.elements.chain_name.value = currentPurchaseOrderPreview.detected_chain_name || "";
-  purchaseOrderForm.elements.notes.value = `OC detectada desde ${currentPurchaseOrderPreview.source_filename}`;
-  purchaseOrderLines.innerHTML = "";
-  currentPurchaseOrderPreview.lines.forEach((line) => {
-    addLine(purchaseOrderLines, "purchase-order");
-    const row = purchaseOrderLines.querySelector(".line-item:last-child");
-    row.querySelector('[name="sku"]').value = `${line.sku} - ${line.product_name}`;
-    row.querySelector('[name="requested_quantity"]').value = String(line.requested_quantity);
-    row.querySelector('[name="original_description"]').value = line.original_description || "";
-  });
-  setMessage("La OC detectada ya paso al formulario. Solo falta confirmar numero y guardar.", "success");
-});
-
 purchaseOrderForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const form = new FormData(purchaseOrderForm);
@@ -872,7 +968,11 @@ purchaseOrderForm.addEventListener("submit", async (event) => {
     chain_name: form.get("chain_name").trim(),
     order_number: form.get("order_number").trim(),
     notes: form.get("notes").trim() || null,
-    source_filename: currentPurchaseOrderPreview?.source_filename || null,
+    external_reference: form.get("external_reference").trim() || null,
+    order_date: form.get("order_date") || null,
+    delivery_due_date: form.get("delivery_due_date") || null,
+    destination: form.get("destination").trim() || null,
+    reserve_stock: form.get("reserve_stock") === "on",
     reason: form.get("reason").trim(),
     lines: readLines(purchaseOrderLines, [
       { name: "sku" },
@@ -899,6 +999,41 @@ purchaseOrderForm.addEventListener("submit", async (event) => {
   } catch (error) {
     setMessage(error.message, "error");
   }
+});
+
+invoiceUploadForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = new FormData(invoiceUploadForm);
+  const upload = new FormData();
+  upload.append("file", form.get("invoice_file"));
+  try {
+    const preview = await apiRequest("/invoices/preview-file", {
+      method: "POST",
+      body: upload,
+    });
+    renderInvoiceFilePreview(preview);
+    setMessage("Factura leida y comparada con su OC.", preview.can_register ? "success" : "info");
+  } catch (error) {
+    currentInvoiceFilePreview = null;
+    invoiceFilePreview.hidden = true;
+    setMessage(error.message, "error");
+  }
+});
+
+applyInvoiceFilePreviewButton.addEventListener("click", () => {
+  const preview = currentInvoiceFilePreview;
+  if (!preview?.can_register || !preview.purchase_order_id) return;
+  invoiceForm.elements.invoice_number.value = preview.invoice_number;
+  invoiceForm.elements.customer_name.value = preview.customer_name || "";
+  invoiceForm.elements.purchase_order_id.value = String(preview.purchase_order_id);
+  invoiceLines.innerHTML = "";
+  preview.lines.forEach((line) => {
+    addLine(invoiceLines, "invoice");
+    const row = invoiceLines.querySelector(".line-item:last-child");
+    row.querySelector('[name="sku"]').value = `${line.sku} - ${line.product_name}`;
+    row.querySelector('[name="quantity"]').value = String(line.quantity);
+  });
+  setMessage("Factura lista en el formulario. Revisa una vez mas y confirma el registro.", "success");
 });
 
 bulkInvoiceForm.addEventListener("submit", async (event) => {
@@ -929,9 +1064,14 @@ confirmBulkInvoiceButton.addEventListener("click", async () => {
   const reason = bulkInvoiceForm.elements.reason.value.trim();
   const invoiceNumberInputs = [...bulkInvoiceBody.querySelectorAll('input[name="bulk_invoice_number"]')];
   const invoiceNumbers = invoiceNumberInputs.map((input) => input.value.trim()).filter(Boolean);
+  const purchaseOrderInputs = [...bulkInvoiceBody.querySelectorAll('input[name="bulk_purchase_order_id"]')];
+  const purchaseOrderIds = purchaseOrderInputs.map((input) => Number(input.value)).filter((value) => value > 0);
 
-  if (invoiceNumbers.length !== currentBulkInvoicePreview.invoices.length) {
-    setMessage("Debes escribir un numero de factura para cada bloque detectado.", "error");
+  if (
+    invoiceNumbers.length !== currentBulkInvoicePreview.invoices.length ||
+    purchaseOrderIds.length !== currentBulkInvoicePreview.invoices.length
+  ) {
+    setMessage("Debes escribir un numero de factura y el ID de su OC para cada bloque.", "error");
     return;
   }
 
@@ -941,10 +1081,16 @@ confirmBulkInvoiceButton.addEventListener("click", async () => {
       const invoiceNumber = bulkInvoiceBody.querySelector(
         `input[data-block-number="${invoice.block_number}"]`,
       ).value.trim();
+      const purchaseOrderId = Number(
+        bulkInvoiceBody.querySelector(
+          `input[name="bulk_purchase_order_id"][data-block-number="${invoice.block_number}"]`,
+        ).value,
+      );
       await apiRequest("/invoices", {
         method: "POST",
         body: JSON.stringify({
           invoice_number: invoiceNumber,
+          purchase_order_id: purchaseOrderId,
           customer_name: customerName,
           reason,
           lines: invoice.lines.map((line) => ({
@@ -972,6 +1118,10 @@ invoiceForm.addEventListener("submit", async (event) => {
   const payload = {
     invoice_number: form.get("invoice_number").trim(),
     customer_name: form.get("customer_name").trim() || null,
+    purchase_order_id: Number(form.get("purchase_order_id")),
+    authorization_number: currentInvoiceFilePreview?.authorization_number || null,
+    issued_at: currentInvoiceFilePreview?.issued_at || null,
+    total_amount: currentInvoiceFilePreview?.total_amount || null,
     reason: form.get("reason").trim(),
     lines: readLines(invoiceLines, [
       { name: "sku" },
@@ -988,6 +1138,8 @@ invoiceForm.addEventListener("submit", async (event) => {
     invoiceForm.reset();
     invoiceLines.innerHTML = "";
     addLine(invoiceLines, "invoice");
+    currentInvoiceFilePreview = null;
+    invoiceFilePreview.hidden = true;
     await loadAvailability();
   } catch (error) {
     setMessage(error.message, "error");
@@ -1274,6 +1426,20 @@ userUpdateForm.addEventListener("submit", async (event) => {
 });
 
 document.addEventListener("click", (event) => {
+  const applyOrderButton = event.target.closest("[data-apply-order-index]");
+  if (applyOrderButton) {
+    applyPurchaseOrderPreview(Number(applyOrderButton.dataset.applyOrderIndex));
+    return;
+  }
+
+  const viewPurchaseOrderButton = event.target.closest("[data-view-purchase-order]");
+  if (viewPurchaseOrderButton) {
+    showPurchaseOrderDetail(Number(viewPurchaseOrderButton.dataset.viewPurchaseOrder)).catch((error) =>
+      setMessage(error.message, "error"),
+    );
+    return;
+  }
+
   const moduleButton = event.target.closest("[data-module]");
   if (moduleButton) {
     activateModule(moduleButton.dataset.module);
@@ -1314,6 +1480,10 @@ document.addEventListener("click", (event) => {
     bulkApprovalForm.elements.approval_id.value = selectImportButton.dataset.selectStockImport;
     bulkApprovalForm.elements.approval_id.focus();
   }
+});
+
+closePurchaseOrderDetailButton.addEventListener("click", () => {
+  purchaseOrderDetail.hidden = true;
 });
 
 refreshButton.addEventListener("click", loadAvailability);

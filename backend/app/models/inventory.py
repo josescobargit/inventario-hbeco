@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from enum import Enum
 from typing import Optional
 
@@ -8,6 +8,7 @@ from sqlalchemy import (
     BigInteger,
     CheckConstraint,
     Computed,
+    Date,
     DateTime,
     ForeignKey,
     Index,
@@ -187,7 +188,13 @@ class PurchaseOrder(Base):
         default=PurchaseOrderStatus.recibida.value,
         server_default=PurchaseOrderStatus.recibida.value,
     )
+    # Legacy column kept for schema compatibility. New OCs never persist uploaded files.
     source_filename: Mapped[Optional[str]] = mapped_column(String(255))
+    external_reference: Mapped[Optional[str]] = mapped_column(String(120))
+    order_date: Mapped[Optional[date]] = mapped_column(Date)
+    delivery_start_date: Mapped[Optional[date]] = mapped_column(Date)
+    delivery_due_date: Mapped[Optional[date]] = mapped_column(Date)
+    destination: Mapped[Optional[str]] = mapped_column(String(255))
     notes: Mapped[Optional[str]] = mapped_column(Text)
     created_by_user_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("users.id"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -219,6 +226,7 @@ class Reservation(Base):
     )
     customer_name: Mapped[Optional[str]] = mapped_column(String(255))
     quantity: Mapped[int] = mapped_column(Integer)
+    original_quantity: Mapped[Optional[int]] = mapped_column(Integer)
     status: Mapped[str] = mapped_column(
         String(60),
         default=ReservationStatus.activa.value,
@@ -250,6 +258,9 @@ class Invoice(Base):
         server_default=InvoiceStatus.facturada.value,
     )
     contifico_source_id: Mapped[Optional[str]] = mapped_column(String(120))
+    authorization_number: Mapped[Optional[str]] = mapped_column(String(80))
+    issued_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    total_amount: Mapped[Optional[float]] = mapped_column(Numeric(12, 2))
     registered_by_user_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("users.id"))
     registered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     notes: Mapped[Optional[str]] = mapped_column(Text)
