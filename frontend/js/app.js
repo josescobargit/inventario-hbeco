@@ -98,6 +98,8 @@ let currentInvoiceFilePreview = null;
 let productCatalog = [];
 let productLookup = { bySku: new Map(), byName: new Map() };
 let latestAvailabilityBySku = new Map();
+let apiRetryTimer = null;
+let apiConnectionAttempt = 0;
 
 const ROLE_LABELS = {
   principal: "Principal",
@@ -268,15 +270,29 @@ function buildApiUrl(path) {
 }
 
 async function apiRequest(path, options = {}) {
-  const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
-  if (options.body instanceof FormData) {
+  const { timeoutMs = 60000, ...fetchOptions } = options;
+  const headers = { "Content-Type": "application/json", ...(fetchOptions.headers || {}) };
+  if (fetchOptions.body instanceof FormData) {
     delete headers["Content-Type"];
   }
-  const response = await fetch(buildApiUrl(path), {
-    ...options,
-    headers,
-    credentials: "include",
-  });
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+  let response;
+  try {
+    response = await fetch(buildApiUrl(path), {
+      ...fetchOptions,
+      headers,
+      credentials: "include",
+      signal: fetchOptions.signal || controller.signal,
+    });
+  } catch (error) {
+    if (error.name === "AbortError") {
+      throw new Error("El servidor esta tardando en responder.");
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timeout);
+  }
   if (!response.ok) {
     let detail = "La API rechazo la operacion.";
     try {
@@ -965,9 +981,13 @@ async function loadIncidents() {
 }
 
 async function checkApi() {
+  if (apiRetryTimer) window.clearTimeout(apiRetryTimer);
+  apiConnectionAttempt += 1;
+  setApiStatus(apiConnectionAttempt === 1 ? "Conectando..." : "Iniciando servidor...", false);
   try {
-    const data = await apiRequest("/health");
+    const data = await apiRequest("/health", { timeoutMs: 20000 });
     setApiStatus(data.status === "ok" ? "API conectada" : "API responde", true);
+    apiConnectionAttempt = 0;
     const setup = await apiRequest("/auth/setup-status");
     if (setup.needs_bootstrap) {
       showAuthForm(bootstrapForm);
@@ -976,8 +996,13 @@ async function checkApi() {
       await loadCurrentUser();
     }
   } catch (error) {
-    setApiStatus("API sin conexion", false);
-    setMessage("Backend no disponible.", "error");
+    const retrySeconds = Math.min(5 + apiConnectionAttempt * 2, 20);
+    setApiStatus("Iniciando servidor...", false);
+    setMessage(
+      `El servidor gratuito se esta iniciando. Reintentaremos automaticamente en ${retrySeconds} segundos.`,
+      "info",
+    );
+    apiRetryTimer = window.setTimeout(checkApi, retrySeconds * 1000);
   }
 }
 
