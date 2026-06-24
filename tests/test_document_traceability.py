@@ -16,6 +16,7 @@ from app.models.inventory import (
 from app.schemas.invoices import InvoiceCreate, InvoiceLineCreate
 from app.services.invoice_files import build_invoice_file_preview
 from app.services.invoicing import InvoiceExceedsPurchaseOrderError, register_invoice
+from app.services.purchase_orders import build_purchase_order_file_preview
 
 
 def traceability_db() -> Session:
@@ -147,3 +148,40 @@ def test_invoice_file_preview_compares_order_and_available_stock():
     assert preview.can_register is True
     assert preview.lines[0].remaining_after_invoice == 10
     assert preview.lines[0].available_for_this_order == 100
+
+
+def test_purchase_order_preview_keeps_unrecognized_lines_for_manual_review():
+    db = traceability_db()
+    seed_order(db)
+
+    preview = build_purchase_order_file_preview(
+        db,
+        "oc.pdf",
+        [
+            {
+                "chain_name": "TIA",
+                "order_number": "3000863180",
+                "lines": [
+                    {
+                        "sku_hint": "AR001",
+                        "requested_quantity": 12,
+                        "quantity_cases": 1,
+                        "units_per_case": 12,
+                        "original_description": "Shampoo reconocido",
+                    },
+                    {
+                        "sku_hint": "ZZ999",
+                        "requested_quantity": 6,
+                        "quantity_cases": 1,
+                        "units_per_case": 6,
+                        "original_description": "Producto nuevo",
+                    },
+                ],
+            }
+        ],
+    )
+
+    assert preview.orders[0].line_count == 2
+    assert preview.orders[0].lines[0].match_status == "reconocido"
+    assert preview.orders[0].lines[1].match_status == "no_reconocido"
+    assert preview.orders[0].lines[1].missing_quantity == 6

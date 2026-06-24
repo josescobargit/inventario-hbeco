@@ -41,8 +41,8 @@ class PurchaseOrderRead(BaseModel):
 
 
 class PurchaseOrderPreviewLineRead(BaseModel):
-    sku: str
-    product_name: str
+    sku: Optional[str] = None
+    product_name: Optional[str] = None
     requested_quantity: int
     quantity_cases: Optional[int] = None
     units_per_case: int
@@ -50,6 +50,7 @@ class PurchaseOrderPreviewLineRead(BaseModel):
     can_invoice_quantity: int
     missing_quantity: int
     availability_status: str
+    match_status: str = "reconocido"
     original_description: Optional[str] = None
 
 

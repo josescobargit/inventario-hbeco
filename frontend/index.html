@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Inventario Operativo</title>
-    <link rel="stylesheet" href="./css/styles.css?v=8" />
+    <link rel="stylesheet" href="./css/styles.css?v=9" />
   </head>
   <body data-api-base-url="">
     <header class="app-header">
@@ -303,20 +303,35 @@
           <button class="primary-button" type="submit">Guardar OC</button>
         </form>
 
-        <form id="purchase-order-upload-form" class="panel form-panel module-view permission-guard" data-view="purchase-orders" data-permission="manage_reservations">
-          <h2>Subir PDF de OC</h2>
+        <form id="purchase-order-upload-form" class="panel form-panel wide-review-panel module-view permission-guard" data-view="purchase-orders" data-permission="manage_reservations">
+          <h2>Revisar OC original</h2>
           <label>
-            Archivo PDF
-            <input name="purchase_order_file" type="file" accept=".pdf,application/pdf" required />
+            Archivo de la OC
+            <input name="purchase_order_file" type="file" accept=".pdf,application/pdf,image/png,image/jpeg,image/webp" required />
           </label>
-          <button class="secondary-button" type="submit">Detectar productos</button>
+          <button class="secondary-button" type="submit">Leer y comparar</button>
           <section id="purchase-order-preview" class="import-preview" hidden>
-            <div id="purchase-order-preview-summary" class="import-summary"></div>
-            <div class="table-wrap">
-              <table class="compact-table">
-                <thead><tr><th>OC</th><th>SKU</th><th>Producto</th><th>Cajas</th><th>UXC</th><th>Pedido</th><th>Disponible</th><th>Faltante</th><th>Estado</th><th></th></tr></thead>
-                <tbody id="purchase-order-preview-body"></tbody>
-              </table>
+            <div class="oc-review-layout">
+              <section class="oc-source-pane">
+                <div class="review-pane-heading">
+                  <h3>OC original</h3>
+                  <a id="purchase-order-source-link" class="secondary-button compact-action" target="_blank" rel="noopener">Abrir</a>
+                </div>
+                <object id="purchase-order-source-pdf" class="oc-source-document" type="application/pdf" hidden></object>
+                <img id="purchase-order-source-image" class="oc-source-document" alt="Vista previa de la OC original" hidden />
+              </section>
+              <section class="oc-detected-pane">
+                <div class="review-pane-heading">
+                  <h3>Datos detectados</h3>
+                </div>
+                <div id="purchase-order-preview-summary" class="import-summary"></div>
+                <div class="table-wrap">
+                  <table class="compact-table review-table">
+                    <thead><tr><th>OC</th><th>SKU</th><th>Producto</th><th>Cajas</th><th>UXC</th><th>Pedido</th><th>Disponible</th><th>Faltante</th><th>Estado</th><th>Confirmar</th></tr></thead>
+                    <tbody id="purchase-order-preview-body"></tbody>
+                  </table>
+                </div>
+              </section>
             </div>
           </section>
         </form>
@@ -692,6 +707,6 @@
 
     <datalist id="product-options"></datalist>
 
-    <script src="./js/app.js?v=8"></script>
+    <script src="./js/app.js?v=9"></script>
   </body>
 </html>

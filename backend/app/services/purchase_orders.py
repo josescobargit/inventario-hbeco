@@ -242,7 +242,6 @@ def build_purchase_order_file_preview(
     by_barcode = {product.barcode: (product, stock) for product, stock in products if product.barcode}
 
     previews = []
-    unresolved = []
     for parsed_order in parsed_orders:
         preview_lines = []
         total_units = 0
@@ -252,10 +251,22 @@ def build_purchase_order_file_preview(
             barcode = str(parsed_line.get("barcode") or "")
             match = by_sku.get(sku_hint) or by_barcode.get(barcode)
             if not match:
-                unresolved.append(
-                    sku_hint
-                    or barcode
-                    or str(parsed_line.get("external_product_code") or parsed_line["original_description"])
+                requested = int(parsed_line["requested_quantity"])
+                total_units += requested
+                preview_lines.append(
+                    PurchaseOrderPreviewLineRead(
+                        sku=sku_hint or None,
+                        product_name=None,
+                        requested_quantity=requested,
+                        quantity_cases=parsed_line.get("quantity_cases"),
+                        units_per_case=int(parsed_line.get("units_per_case") or 1),
+                        available_to_invoice=0,
+                        can_invoice_quantity=0,
+                        missing_quantity=requested,
+                        availability_status="no_reconocido",
+                        match_status="no_reconocido",
+                        original_description=str(parsed_line.get("original_description") or "") or None,
+                    )
                 )
                 continue
             product, stock = match
@@ -277,6 +288,7 @@ def build_purchase_order_file_preview(
                     can_invoice_quantity=can_invoice,
                     missing_quantity=missing,
                     availability_status=status,
+                    match_status="reconocido",
                     original_description=str(parsed_line.get("original_description") or "") or None,
                 )
             )
@@ -297,8 +309,6 @@ def build_purchase_order_file_preview(
             )
         )
 
-    if unresolved:
-        raise PurchaseOrderUnknownProductError(sorted(set(unresolved)))
     return PurchaseOrderFilePreviewRead(
         source_filename=source_filename,
         order_count=len(previews),

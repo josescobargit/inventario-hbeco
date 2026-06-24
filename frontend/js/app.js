@@ -31,6 +31,9 @@ const purchaseOrderLines = document.querySelector("#purchase-order-lines");
 const purchaseOrderPreview = document.querySelector("#purchase-order-preview");
 const purchaseOrderPreviewSummary = document.querySelector("#purchase-order-preview-summary");
 const purchaseOrderPreviewBody = document.querySelector("#purchase-order-preview-body");
+const purchaseOrderSourcePdf = document.querySelector("#purchase-order-source-pdf");
+const purchaseOrderSourceImage = document.querySelector("#purchase-order-source-image");
+const purchaseOrderSourceLink = document.querySelector("#purchase-order-source-link");
 const invoiceFilePreview = document.querySelector("#invoice-file-preview");
 const invoiceFileSummary = document.querySelector("#invoice-file-summary");
 const invoiceFileWarnings = document.querySelector("#invoice-file-warnings");
@@ -89,10 +92,12 @@ const API_BASE_URL = (() => {
 let currentUser = null;
 let currentStockImportPreview = null;
 let currentPurchaseOrderPreview = null;
+let currentPurchaseOrderSourceUrl = null;
 let currentBulkInvoicePreview = null;
 let currentInvoiceFilePreview = null;
 let productCatalog = [];
 let productLookup = { bySku: new Map(), byName: new Map() };
+let latestAvailabilityBySku = new Map();
 
 const ROLE_LABELS = {
   principal: "Principal",
@@ -226,6 +231,36 @@ function setMessage(text, type = "info") {
 function setApiStatus(text, connected) {
   statusEl.textContent = text;
   statusEl.classList.toggle("ok", connected);
+}
+
+function showPurchaseOrderSource(file) {
+  if (!file) return;
+  if (currentPurchaseOrderSourceUrl) {
+    URL.revokeObjectURL(currentPurchaseOrderSourceUrl);
+  }
+  currentPurchaseOrderSourceUrl = URL.createObjectURL(file);
+  purchaseOrderSourceLink.href = currentPurchaseOrderSourceUrl;
+  const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+  purchaseOrderSourcePdf.hidden = !isPdf;
+  purchaseOrderSourceImage.hidden = isPdf;
+  if (isPdf) {
+    purchaseOrderSourcePdf.data = currentPurchaseOrderSourceUrl;
+    purchaseOrderSourceImage.removeAttribute("src");
+  } else {
+    purchaseOrderSourceImage.src = currentPurchaseOrderSourceUrl;
+    purchaseOrderSourcePdf.removeAttribute("data");
+  }
+  purchaseOrderPreview.hidden = false;
+}
+
+function clearPurchaseOrderSource() {
+  if (currentPurchaseOrderSourceUrl) {
+    URL.revokeObjectURL(currentPurchaseOrderSourceUrl);
+  }
+  currentPurchaseOrderSourceUrl = null;
+  purchaseOrderSourcePdf.removeAttribute("data");
+  purchaseOrderSourceImage.removeAttribute("src");
+  purchaseOrderSourceLink.removeAttribute("href");
 }
 
 function buildApiUrl(path) {
@@ -534,6 +569,9 @@ function updateMetrics(rows) {
 }
 
 function renderAvailability(rows) {
+  latestAvailabilityBySku = new Map(
+    rows.map((row) => [String(row.sku).toUpperCase(), row]),
+  );
   productCountBadge.textContent = `${formatNumber(rows.length)} ${rows.length === 1 ? "producto" : "productos"}`;
   if (!rows.length) {
     availabilityBody.innerHTML = '<tr><td colspan="8">No hay productos cargados.</td></tr>';
@@ -685,32 +723,123 @@ function renderIncidents(rows) {
 function renderPurchaseOrderPreview(preview) {
   currentPurchaseOrderPreview = preview;
   purchaseOrderPreview.hidden = false;
+  preview.orders.forEach((order) => {
+    order.lines.forEach((line) => {
+      if (line.sku) {
+        latestAvailabilityBySku.set(String(line.sku).toUpperCase(), {
+          sku: line.sku,
+          available_to_invoice: line.available_to_invoice,
+        });
+      }
+    });
+  });
   purchaseOrderPreviewSummary.textContent = `${preview.order_count} ${preview.order_count === 1 ? "OC detectada" : "OC detectadas"} en ${preview.source_filename}`;
   purchaseOrderPreviewBody.innerHTML = preview.orders
     .flatMap((order, orderIndex) =>
       order.lines.map(
         (line, lineIndex) => `
-        <tr>
-          <td>${escapeHtml(order.order_number)}</td>
-          <td>${escapeHtml(line.sku)}</td>
-          <td>${escapeHtml(line.product_name)}</td>
-          <td>${line.quantity_cases == null ? "-" : formatNumber(line.quantity_cases)}</td>
-          <td>${formatNumber(line.units_per_case)}</td>
-          <td>${formatNumber(line.requested_quantity)}</td>
-          <td>${formatNumber(line.available_to_invoice)}</td>
-          <td>${formatNumber(line.missing_quantity)}</td>
-          <td><span class="availability-state ${escapeHtml(line.availability_status)}">${escapeHtml(line.availability_status)}</span></td>
-          <td>${lineIndex === 0 ? `<button class="secondary-button compact-action" type="button" data-apply-order-index="${orderIndex}">Usar OC</button>` : ""}</td>
+        <tr data-review-order-index="${orderIndex}" data-review-line-index="${lineIndex}">
+          <td>${lineIndex === 0 ? `<input data-review-order-number="${orderIndex}" value="${escapeHtml(order.order_number)}" aria-label="Numero OC" />` : `<span data-review-order-label="${orderIndex}">${escapeHtml(order.order_number)}</span>`}</td>
+          <td><input data-review-field="sku" list="product-options" value="${line.sku ? `${escapeHtml(line.sku)}${line.product_name ? ` - ${escapeHtml(line.product_name)}` : ""}` : ""}" aria-label="SKU detectado" /></td>
+          <td data-review-product-name>${escapeHtml(line.product_name || "Sin reconocer")}</td>
+          <td><input data-review-field="cases" type="number" min="0" step="1" value="${line.quantity_cases == null ? "" : line.quantity_cases}" aria-label="Cajas detectadas" /></td>
+          <td><input data-review-field="uxc" type="number" min="1" step="1" value="${line.units_per_case}" aria-label="Unidades por caja" /></td>
+          <td><input data-review-field="requested" type="number" min="1" step="1" value="${line.requested_quantity}" ${line.quantity_cases == null ? "" : "readonly"} aria-label="Unidades pedidas" /></td>
+          <td data-review-available>${formatNumber(line.available_to_invoice)}</td>
+          <td data-review-missing>${formatNumber(line.missing_quantity)}</td>
+          <td><span data-review-status class="availability-state ${escapeHtml(line.availability_status)}">${escapeHtml(line.availability_status)}</span></td>
+          <td>${lineIndex === 0 ? `<div class="review-confirmation"><label><input type="checkbox" data-confirm-order-index="${orderIndex}" />Comparada</label><button class="secondary-button compact-action" type="button" data-apply-order-index="${orderIndex}" disabled>Usar OC</button></div>` : ""}</td>
         </tr>
       `,
       ),
     )
     .join("");
+  attachProductAutocomplete(purchaseOrderPreviewBody);
+}
+
+function resetPurchaseOrderConfirmation(orderIndex) {
+  const checkbox = purchaseOrderPreviewBody.querySelector(
+    `[data-confirm-order-index="${orderIndex}"]`,
+  );
+  const button = purchaseOrderPreviewBody.querySelector(
+    `[data-apply-order-index="${orderIndex}"]`,
+  );
+  if (checkbox) checkbox.checked = false;
+  if (button) button.disabled = true;
+}
+
+function updatePurchaseOrderReviewRow(row, changedField) {
+  const orderIndex = Number(row.dataset.reviewOrderIndex);
+  const lineIndex = Number(row.dataset.reviewLineIndex);
+  const order = currentPurchaseOrderPreview?.orders?.[orderIndex];
+  const line = order?.lines?.[lineIndex];
+  if (!line) return;
+
+  const skuInput = row.querySelector('[data-review-field="sku"]');
+  const casesInput = row.querySelector('[data-review-field="cases"]');
+  const uxcInput = row.querySelector('[data-review-field="uxc"]');
+  const requestedInput = row.querySelector('[data-review-field="requested"]');
+  const product = resolveProductReference(skuInput.value);
+  const casesValue = casesInput.value === "" ? null : Number(casesInput.value);
+  const unitsPerCase = Math.max(1, Number(uxcInput.value) || 1);
+  requestedInput.readOnly = casesValue != null;
+  if (["cases", "uxc"].includes(changedField) && casesValue != null) {
+    requestedInput.value = String(Math.max(0, Math.round(casesValue * unitsPerCase)));
+  }
+  const requested = Math.max(0, Number(requestedInput.value) || 0);
+  const availability = product
+    ? latestAvailabilityBySku.get(String(product.sku).toUpperCase())
+    : null;
+  const available = Number(availability?.available_to_invoice || 0);
+  const canInvoice = Math.min(requested, available);
+  const missing = Math.max(0, requested - available);
+  const status = !product
+    ? "no_reconocido"
+    : missing === 0 && requested > 0
+      ? "completa"
+      : canInvoice > 0
+        ? "parcial"
+        : "sin_stock";
+
+  line.sku = product?.sku || "";
+  line.product_name = product?.name || "Producto no reconocido";
+  line.quantity_cases = casesValue == null ? null : Math.round(casesValue);
+  line.units_per_case = unitsPerCase;
+  line.requested_quantity = Math.round(requested);
+  line.available_to_invoice = available;
+  line.can_invoice_quantity = canInvoice;
+  line.missing_quantity = missing;
+  line.availability_status = status;
+  line.match_status = product ? "reconocido" : "no_reconocido";
+
+  row.querySelector("[data-review-product-name]").textContent = line.product_name;
+  row.querySelector("[data-review-available]").textContent = formatNumber(available);
+  row.querySelector("[data-review-missing]").textContent = formatNumber(missing);
+  const statusElement = row.querySelector("[data-review-status]");
+  statusElement.textContent = status;
+  statusElement.className = `availability-state ${status}`;
+  row.classList.toggle("review-row-error", !product || requested <= 0);
+  resetPurchaseOrderConfirmation(orderIndex);
+}
+
+function canConfirmPurchaseOrder(orderIndex) {
+  const order = currentPurchaseOrderPreview?.orders?.[orderIndex];
+  return Boolean(
+    order?.order_number?.trim() &&
+      order.lines.length &&
+      order.lines.every((line) => line.sku && line.requested_quantity > 0),
+  );
 }
 
 function applyPurchaseOrderPreview(orderIndex) {
   const order = currentPurchaseOrderPreview?.orders?.[orderIndex];
-  if (!order) return;
+  const confirmation = purchaseOrderPreviewBody.querySelector(
+    `[data-confirm-order-index="${orderIndex}"]`,
+  );
+  if (!order || !confirmation?.checked || !canConfirmPurchaseOrder(orderIndex)) {
+    setMessage("Compara la OC original y confirma que todas las lineas sean correctas.", "error");
+    return;
+  }
   purchaseOrderForm.elements.chain_name.value = order.chain_name;
   purchaseOrderForm.elements.order_number.value = order.order_number;
   purchaseOrderForm.elements.order_date.value = order.order_date || "";
@@ -726,6 +855,7 @@ function applyPurchaseOrderPreview(orderIndex) {
     row.querySelector('[name="requested_quantity"]').value = String(line.requested_quantity);
     row.querySelector('[name="original_description"]').value = line.original_description || "";
   });
+  purchaseOrderForm.scrollIntoView({ behavior: "smooth", block: "start" });
   setMessage(`OC ${order.order_number} lista para confirmar. Elige si deseas reservar antes de guardar.`, "success");
 }
 
@@ -941,11 +1071,22 @@ logoutButton.addEventListener("click", async () => {
   setMessage("Sesion cerrada.", "success");
 });
 
+purchaseOrderUploadForm.elements.purchase_order_file.addEventListener("change", (event) => {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  currentPurchaseOrderPreview = null;
+  purchaseOrderPreviewBody.innerHTML = "";
+  purchaseOrderPreviewSummary.textContent = `${file.name} · pendiente de lectura`;
+  showPurchaseOrderSource(file);
+});
+
 purchaseOrderUploadForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const form = new FormData(purchaseOrderUploadForm);
+  const file = form.get("purchase_order_file");
+  showPurchaseOrderSource(file);
   const upload = new FormData();
-  upload.append("file", form.get("purchase_order_file"));
+  upload.append("file", file);
 
   try {
     const preview = await apiRequest("/purchase-orders/preview-file", {
@@ -956,9 +1097,49 @@ purchaseOrderUploadForm.addEventListener("submit", async (event) => {
     setMessage("PDF detectado. Revisa las lineas y pasalas al formulario de OC.", "success");
   } catch (error) {
     currentPurchaseOrderPreview = null;
-    purchaseOrderPreview.hidden = true;
-    setMessage(error.message, "error");
+    purchaseOrderPreview.hidden = false;
+    purchaseOrderPreviewSummary.textContent = `No se pudo interpretar automáticamente: ${error.message}`;
+    purchaseOrderPreviewBody.innerHTML = '<tr><td colspan="10">La OC original permanece visible para registrar o corregir los datos manualmente.</td></tr>';
+    setMessage(`La OC original esta visible, pero el detector necesita revision: ${error.message}`, "error");
   }
+});
+
+purchaseOrderPreviewBody.addEventListener("input", (event) => {
+  const orderNumberInput = event.target.closest("[data-review-order-number]");
+  if (orderNumberInput) {
+    const orderIndex = Number(orderNumberInput.dataset.reviewOrderNumber);
+    const order = currentPurchaseOrderPreview?.orders?.[orderIndex];
+    if (order) order.order_number = orderNumberInput.value.trim();
+    purchaseOrderPreviewBody
+      .querySelectorAll(`[data-review-order-label="${orderIndex}"]`)
+      .forEach((label) => {
+        label.textContent = orderNumberInput.value.trim();
+      });
+    resetPurchaseOrderConfirmation(orderIndex);
+    return;
+  }
+
+  const reviewInput = event.target.closest("[data-review-field]");
+  const row = reviewInput?.closest("[data-review-order-index]");
+  if (reviewInput && row) {
+    updatePurchaseOrderReviewRow(row, reviewInput.dataset.reviewField);
+  }
+});
+
+purchaseOrderPreviewBody.addEventListener("change", (event) => {
+  const confirmation = event.target.closest("[data-confirm-order-index]");
+  if (!confirmation) return;
+  const orderIndex = Number(confirmation.dataset.confirmOrderIndex);
+  const button = purchaseOrderPreviewBody.querySelector(
+    `[data-apply-order-index="${orderIndex}"]`,
+  );
+  if (confirmation.checked && !canConfirmPurchaseOrder(orderIndex)) {
+    confirmation.checked = false;
+    if (button) button.disabled = true;
+    setMessage("Corrige las lineas no reconocidas antes de confirmar la OC.", "error");
+    return;
+  }
+  if (button) button.disabled = !confirmation.checked;
 });
 
 purchaseOrderForm.addEventListener("submit", async (event) => {
@@ -995,6 +1176,7 @@ purchaseOrderForm.addEventListener("submit", async (event) => {
     addLine(purchaseOrderLines, "purchase-order");
     currentPurchaseOrderPreview = null;
     purchaseOrderPreview.hidden = true;
+    clearPurchaseOrderSource();
     await loadPurchaseOrders();
   } catch (error) {
     setMessage(error.message, "error");
@@ -1500,4 +1682,5 @@ refreshIncidentsButton.addEventListener("click", () => {
 addLine(invoiceLines, "invoice");
 addLine(dispatchLines, "dispatch");
 addLine(purchaseOrderLines, "purchase-order");
+window.addEventListener("beforeunload", clearPurchaseOrderSource);
 checkApi();
