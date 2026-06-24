@@ -44,7 +44,20 @@ def _line(
     }
 
 
-def _parse_tia(pdf: pdfplumber.PDF, text: str, filename: str) -> list[dict[str, object]]:
+def _first_order_number(text: str, patterns: tuple[str, ...]) -> str:
+    for pattern in patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            return match.group(1).strip()
+    return ""
+
+
+def _filename_order_hint(filename: str) -> str:
+    match = re.search(r"(?:^|\b)(?:OC|ORDEN)[\s_-]*(\d{5,})\b", Path(filename).stem, re.IGNORECASE)
+    return match.group(1) if match else ""
+
+
+def _parse_tia(pdf: pdfplumber.PDF, text: str) -> list[dict[str, object]]:
     homologation: dict[str, str] = {}
     product_rows: list[list[object]] = []
     for page in pdf.pages:
@@ -94,7 +107,8 @@ def _parse_tia(pdf: pdfplumber.PDF, text: str, filename: str) -> list[dict[str, 
     return [
         {
             "chain_name": "TIA",
-            "order_number": order_match.group(1) if order_match else Path(filename).stem,
+            "order_number": order_match.group(1) if order_match else "",
+            "order_number_source": "document" if order_match else "missing",
             "order_date": _iso_date(order_date.group(1) if order_date else None, ("%Y-%m-%d",)),
             "delivery_start_date": _iso_date(delivery.group(1) if delivery else None, ("%Y-%m-%d",)),
             "delivery_due_date": _iso_date(delivery.group(2) if delivery else None, ("%Y-%m-%d",)),
@@ -105,7 +119,7 @@ def _parse_tia(pdf: pdfplumber.PDF, text: str, filename: str) -> list[dict[str, 
     ]
 
 
-def _parse_gerardo_ortiz(text: str, filename: str) -> list[dict[str, object]]:
+def _parse_gerardo_ortiz(text: str) -> list[dict[str, object]]:
     rows = []
     pending_barcode: str | None = None
     pattern = re.compile(r"^\d+\s+(.+?)\s+X900[^\s]*-UN\s+(\d+)\s+", re.IGNORECASE)
@@ -137,7 +151,8 @@ def _parse_gerardo_ortiz(text: str, filename: str) -> list[dict[str, object]]:
     return [
         {
             "chain_name": "GERARDO ORTIZ",
-            "order_number": purchase_number.group(1) if purchase_number else Path(filename).stem,
+            "order_number": purchase_number.group(1) if purchase_number else "",
+            "order_number_source": "document" if purchase_number else "missing",
             "order_date": _iso_date(sent_at.group(1) if sent_at else None, ("%Y-%m-%d",)),
             "delivery_start_date": None,
             "delivery_due_date": _iso_date(due_at.group(1) if due_at else None, ("%Y-%m-%d",)),
@@ -170,18 +185,32 @@ def _parse_favorita(text: str, filename: str) -> list[dict[str, object]]:
             )
         )
 
-    filename_order = re.search(r"\bOC\s+(\d+)", Path(filename).stem, re.IGNORECASE)
+    order_number = _first_order_number(
+        text,
+        (
+            r"N[ÚU]MERO\s+(?:DE\s+)?ORDEN\s*[:#-]?\s*(\d{5,})",
+            r"ORDEN\s+(?:DE\s+)?COMPRA\s+(?:N(?:RO|UMERO)?\.?\s*)?[:#-]\s*(\d{5,})",
+        ),
+    )
+    order_number_source = "document"
+    if not order_number:
+        order_number = _filename_order_hint(filename)
+        order_number_source = "filename" if order_number else "missing"
+    portal_reference = re.search(r"PEDIDOID=(\d+)", text, re.IGNORECASE)
     order_date = re.search(r"FECHA ELABORA:\s*(\d{2}/[A-Z]{3}/\d{4})", text, re.IGNORECASE)
     due_at = re.search(r"FECHA CANCELA:\s*(\d{2}/[A-Z]{3}/\d{4})", text, re.IGNORECASE)
     return [
         {
             "chain_name": "FAVORITA",
-            "order_number": filename_order.group(1) if filename_order else Path(filename).stem,
+            "order_number": order_number,
+            "order_number_source": order_number_source,
             "order_date": _iso_date(order_date.group(1) if order_date else None, ("%d/%b/%Y",)),
             "delivery_start_date": None,
             "delivery_due_date": _iso_date(due_at.group(1) if due_at else None, ("%d/%b/%Y",)),
             "destination": "CENTRO DE DISTRIBUCION",
-            "external_reference": None,
+            "external_reference": (
+                f"PEDIDO PORTAL {portal_reference.group(1)}" if portal_reference else None
+            ),
             "lines": rows,
         }
     ]
@@ -224,6 +253,7 @@ def _parse_rosado(text: str) -> list[dict[str, object]]:
             {
                 "chain_name": "ROSADO",
                 "order_number": order_match.group(1),
+                "order_number_source": "document",
                 "order_date": _iso_date(date_match.group(1) if date_match else None, ("%Y.%m.%d",)),
                 "delivery_start_date": None,
                 "delivery_due_date": _iso_date(date_match.group(2) if date_match else None, ("%Y.%m.%d",)),
@@ -243,7 +273,7 @@ _DANEC_CODES = {
 }
 
 
-def _parse_danec(text: str, filename: str) -> list[dict[str, object]]:
+def _parse_danec(text: str) -> list[dict[str, object]]:
     rows = []
     pattern = re.compile(r"^(\d+(?:\.\d+)?)\s+UN\s+(\d{13})\s+(.+?)\s+-\s+", re.IGNORECASE)
     for raw_line in text.splitlines():
@@ -266,13 +296,23 @@ def _parse_danec(text: str, filename: str) -> list[dict[str, object]]:
             )
         )
 
-    filename_order = re.search(r"(\d{8})", Path(filename).stem)
+    order_header = re.search(
+        r"ORDEN\s+DE\s+COMPRA(.{0,35}?)\s+OB\b",
+        text,
+        re.IGNORECASE | re.DOTALL,
+    )
+    order_number = ""
+    if order_header:
+        digits = "".join(re.findall(r"\d", order_header.group(1)))
+        if len(digits) >= 6:
+            order_number = digits
     order_date = re.search(r"FECHA DE ORDEN:\s*(\d{2}/\d{2}/\d{2})", text, re.IGNORECASE)
     due_at = re.search(r"FECHA DE ENTREGA:\s*(\d{2}/\d{2}/\d{2})", text, re.IGNORECASE)
     return [
         {
             "chain_name": "DANEC",
-            "order_number": filename_order.group(1) if filename_order else Path(filename).stem,
+            "order_number": order_number,
+            "order_number_source": "document" if order_number else "missing",
             "order_date": _iso_date(order_date.group(1) if order_date else None, ("%d/%m/%y",)),
             "delivery_start_date": None,
             "delivery_due_date": _iso_date(due_at.group(1) if due_at else None, ("%d/%m/%y",)),
@@ -294,15 +334,15 @@ def parse_purchase_order_pdf(filename: str, content: bytes) -> list[dict[str, ob
             text = "\n".join(page.extract_text() or "" for page in pdf.pages)
             upper = text.upper()
             if "TIENDAS INDUSTRIALES ASOCIADAS" in upper or "TIA S.A." in upper:
-                orders = _parse_tia(pdf, text, filename)
+                orders = _parse_tia(pdf, text)
             elif "CORPORACION FAVORITA" in upper:
                 orders = _parse_favorita(text, filename)
             elif "GERARDO ORTIZ" in upper:
-                orders = _parse_gerardo_ortiz(text, filename)
+                orders = _parse_gerardo_ortiz(text)
             elif "CORPORACION EL ROSADO" in upper:
                 orders = _parse_rosado(text)
             elif "INDUSTRIAL DANEC" in upper:
-                orders = _parse_danec(text, filename)
+                orders = _parse_danec(text)
             else:
                 raise PurchaseOrderFileError("No pude identificar la cadena de esta OC.")
     except PurchaseOrderFileError:

@@ -755,7 +755,7 @@ function renderPurchaseOrderPreview(preview) {
       order.lines.map(
         (line, lineIndex) => `
         <tr data-review-order-index="${orderIndex}" data-review-line-index="${lineIndex}">
-          <td>${lineIndex === 0 ? `<input data-review-order-number="${orderIndex}" value="${escapeHtml(order.order_number)}" aria-label="Numero OC" />` : `<span data-review-order-label="${orderIndex}">${escapeHtml(order.order_number)}</span>`}</td>
+          <td>${lineIndex === 0 ? `<input data-review-order-number="${orderIndex}" value="${escapeHtml(order.order_number)}" placeholder="Numero OC" aria-label="Numero OC" /><small class="order-number-source ${escapeHtml(order.order_number_source)}">${order.order_number_source === "document" ? "Documento" : order.order_number_source === "filename" ? "Confirmar nombre" : "Escribir y confirmar"}</small>` : `<span data-review-order-label="${orderIndex}">${escapeHtml(order.order_number || "Pendiente")}</span>`}</td>
           <td><input data-review-field="sku" list="product-options" value="${line.sku ? `${escapeHtml(line.sku)}${line.product_name ? ` - ${escapeHtml(line.product_name)}` : ""}` : ""}" aria-label="SKU detectado" /></td>
           <td data-review-product-name>${escapeHtml(line.product_name || "Sin reconocer")}</td>
           <td><input data-review-field="cases" type="number" min="0" step="1" value="${line.quantity_cases == null ? "" : line.quantity_cases}" aria-label="Cajas detectadas" /></td>

@@ -296,6 +296,7 @@ def build_purchase_order_file_preview(
             PurchaseOrderPreviewRead(
                 chain_name=str(parsed_order["chain_name"]),
                 order_number=str(parsed_order["order_number"]),
+                order_number_source=str(parsed_order.get("order_number_source") or "missing"),
                 external_reference=parsed_order.get("external_reference"),
                 order_date=parsed_order.get("order_date"),
                 delivery_start_date=parsed_order.get("delivery_start_date"),

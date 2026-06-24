@@ -57,6 +57,7 @@ class PurchaseOrderPreviewLineRead(BaseModel):
 class PurchaseOrderPreviewRead(BaseModel):
     chain_name: str
     order_number: str
+    order_number_source: str = "document"
     external_reference: Optional[str] = None
     order_date: Optional[date] = None
     delivery_start_date: Optional[date] = None
