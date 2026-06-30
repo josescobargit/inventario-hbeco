@@ -59,7 +59,13 @@ def _aggregate_lines(invoice: InvoiceCreate) -> dict[str, int]:
     return dict(quantities)
 
 
-def register_invoice(db: Session, invoice_data: InvoiceCreate, actor_user_id: int) -> InvoiceRead:
+def register_invoice(
+    db: Session,
+    invoice_data: InvoiceCreate,
+    actor_user_id: int,
+    *,
+    commit: bool = True,
+) -> InvoiceRead:
     existing = db.scalar(
         select(Invoice.id).where(Invoice.invoice_number == invoice_data.invoice_number.strip())
     )
@@ -202,8 +208,11 @@ def register_invoice(db: Session, invoice_data: InvoiceCreate, actor_user_id: in
         else PurchaseOrderStatus.parcialmente_facturada.value
     )
 
-    db.commit()
-    db.refresh(invoice)
+    if commit:
+        db.commit()
+        db.refresh(invoice)
+    else:
+        db.flush()
     return InvoiceRead(
         id=invoice.id,
         invoice_number=invoice.invoice_number,

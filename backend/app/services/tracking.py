@@ -61,6 +61,10 @@ def list_invoice_summaries(db: Session, limit: int = 100) -> list[InvoiceSummary
             Invoice.id,
             Invoice.invoice_number,
             Invoice.customer_name,
+            Invoice.purchase_order_id,
+            (PurchaseOrder.chain_name + " / " + PurchaseOrder.order_number).label(
+                "purchase_order_reference"
+            ),
             Invoice.status,
             Invoice.registered_at,
             registrar.full_name.label("registered_by"),
@@ -71,6 +75,7 @@ def list_invoice_summaries(db: Session, limit: int = 100) -> list[InvoiceSummary
         .outerjoin(line_totals, line_totals.c.invoice_id == Invoice.id)
         .outerjoin(dispatch_totals, dispatch_totals.c.invoice_id == Invoice.id)
         .outerjoin(registrar, registrar.id == Invoice.registered_by_user_id)
+        .outerjoin(PurchaseOrder, PurchaseOrder.id == Invoice.purchase_order_id)
         .order_by(Invoice.registered_at.desc(), Invoice.id.desc())
         .limit(limit)
     ).mappings()

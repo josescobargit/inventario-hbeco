@@ -40,6 +40,8 @@ class InvoiceSummaryRead(BaseModel):
     id: int
     invoice_number: str
     customer_name: Optional[str] = None
+    purchase_order_id: Optional[int] = None
+    purchase_order_reference: Optional[str] = None
     status: str
     total_units: int
     dispatched_units: int
@@ -60,16 +62,31 @@ class BulkInvoicePreviewLineRead(BaseModel):
     raw_description: str
 
 
+class BulkInvoicePurchaseOrderCandidateRead(BaseModel):
+    id: int
+    order_number: str
+    chain_name: str
+
+
 class BulkInvoicePreviewItemRead(BaseModel):
     block_number: int
     total_units: int
     lines: list[BulkInvoicePreviewLineRead]
+    suggested_invoice_number: Optional[str] = None
+    suggested_purchase_order_id: Optional[int] = None
+    purchase_order_candidates: list[BulkInvoicePurchaseOrderCandidateRead] = Field(
+        default_factory=list
+    )
 
 
 class BulkInvoicePreviewRead(BaseModel):
     invoice_count: int
     lines_total: int
     invoices: list[BulkInvoicePreviewItemRead]
+
+
+class BulkInvoiceCreate(BaseModel):
+    invoices: list[InvoiceCreate] = Field(min_length=1)
 
 
 class InvoiceFilePreviewLineRead(BaseModel):

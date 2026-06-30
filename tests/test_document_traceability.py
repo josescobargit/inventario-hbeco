@@ -13,7 +13,8 @@ from app.models.inventory import (
     StockPosition,
     User,
 )
-from app.schemas.invoices import InvoiceCreate, InvoiceLineCreate
+from app.schemas.invoices import BulkInvoiceCreate, InvoiceCreate, InvoiceLineCreate
+from app.services.invoice_bulk import register_bulk_invoices
 from app.services.invoice_files import build_invoice_file_preview
 from app.services.invoicing import InvoiceExceedsPurchaseOrderError, register_invoice
 from app.services.purchase_orders import build_purchase_order_file_preview
@@ -124,6 +125,38 @@ def test_invoice_cannot_exceed_remaining_purchase_order_quantity():
     except InvoiceExceedsPurchaseOrderError as exc:
         assert exc.sku == "AR001"
         assert exc.remaining == 50
+
+
+def test_bulk_invoice_registration_is_atomic_when_one_invoice_fails():
+    db = traceability_db()
+    user, _, stock, order = seed_order(db)
+
+    try:
+        register_bulk_invoices(
+            db,
+            BulkInvoiceCreate(
+                invoices=[
+                    InvoiceCreate(
+                        invoice_number="001-001-100",
+                        purchase_order_id=order.id,
+                        reason="Carga masiva",
+                        lines=[InvoiceLineCreate(sku="AR001", quantity=10)],
+                    ),
+                    InvoiceCreate(
+                        invoice_number="001-001-101",
+                        purchase_order_id=order.id,
+                        reason="Carga masiva",
+                        lines=[InvoiceLineCreate(sku="AR001", quantity=100)],
+                    ),
+                ]
+            ),
+            user.id,
+        )
+        assert False, "Expected bulk registration error"
+    except InvoiceExceedsPurchaseOrderError:
+        assert db.query(Invoice).count() == 0
+        db.refresh(stock)
+        assert stock.invoiced_pending_dispatch == 0
 
 
 def test_invoice_file_preview_compares_order_and_available_stock():

@@ -8,6 +8,7 @@ from app.models.inventory import User
 from app.parsers.invoice_bulk import BulkInvoiceParseError
 from app.parsers.invoice_pdf import InvoiceFileError, parse_contifico_invoice_pdf
 from app.schemas.invoices import (
+    BulkInvoiceCreate,
     BulkInvoicePreviewRead,
     BulkInvoicePreviewRequest,
     InvoiceCreate,
@@ -15,7 +16,11 @@ from app.schemas.invoices import (
     InvoiceRead,
     InvoiceSummaryRead,
 )
-from app.services.invoice_bulk import BulkInvoiceUnknownProductError, build_bulk_invoice_preview
+from app.services.invoice_bulk import (
+    BulkInvoiceUnknownProductError,
+    build_bulk_invoice_preview,
+    register_bulk_invoices,
+)
 from app.services.invoice_files import InvoiceFileUnknownProductError, build_invoice_file_preview
 from app.services.invoicing import (
     InsufficientStockError,
@@ -73,6 +78,44 @@ def preview_bulk_invoices(
         ) from exc
     except BulkInvoiceParseError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.post("/bulk", response_model=list[InvoiceRead], status_code=status.HTTP_201_CREATED)
+def create_bulk_invoices(
+    payload: BulkInvoiceCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(Permission.register_invoice)),
+) -> list[InvoiceRead]:
+    try:
+        return register_bulk_invoices(db, payload, current_user.id)
+    except InvoiceAlreadyExistsError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"La factura ya existe: {exc}",
+        ) from exc
+    except UnknownProductError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"SKU no encontrado(s): {', '.join(exc.skus)}",
+        ) from exc
+    except InsufficientStockError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"Stock insuficiente para {exc.sku}. Pedido: {exc.requested}. "
+                f"Disponible: {exc.available}."
+            ),
+        ) from exc
+    except InvoicePurchaseOrderError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except InvoiceExceedsPurchaseOrderError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"La factura excede la OC para {exc.sku}. Factura: {exc.requested}. "
+                f"Pendiente en OC: {exc.remaining}."
+            ),
+        ) from exc
 
 
 @router.post("", response_model=InvoiceRead, status_code=status.HTTP_201_CREATED)

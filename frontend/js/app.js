@@ -1,5 +1,29 @@
 const statusEl = document.querySelector("#api-status");
 const availabilityBody = document.querySelector("#availability-body");
+const overviewMetricGrid = document.querySelector('.grid.module-view[data-view="overview"]');
+const stockDecisionPanel = document.createElement("section");
+stockDecisionPanel.id = "stock-decision-panel";
+stockDecisionPanel.className = "stock-decision-panel panel module-view permission-guard";
+stockDecisionPanel.dataset.view = "overview";
+stockDecisionPanel.dataset.permission = "view_inventory";
+stockDecisionPanel.innerHTML = `
+  <div class="decision-heading">
+    <div>
+      <p class="workspace-kicker">DECISIONES DE VENTA</p>
+      <h2>¿Que puedo facturar hoy?</h2>
+      <p class="decision-note">Stock bajo significa que queda una caja o menos. Todavia se puede facturar, pero requiere atencion.</p>
+    </div>
+    <label class="availability-search-label">Buscar producto
+      <input id="availability-search" type="search" placeholder="SKU o nombre" />
+    </label>
+  </div>
+  <div id="stock-decision-summary" class="stock-decision-summary"></div>
+  <div id="stock-decision-lists" class="stock-decision-lists"></div>
+`;
+overviewMetricGrid.parentNode.insertBefore(stockDecisionPanel, overviewMetricGrid);
+const stockDecisionSummary = stockDecisionPanel.querySelector("#stock-decision-summary");
+const stockDecisionLists = stockDecisionPanel.querySelector("#stock-decision-lists");
+const availabilitySearch = stockDecisionPanel.querySelector("#availability-search");
 const metricPhysical = document.querySelector("#metric-physical");
 const metricReserved = document.querySelector("#metric-reserved");
 const metricInvoiced = document.querySelector("#metric-invoiced");
@@ -89,6 +113,11 @@ const API_BASE_URL = (() => {
   }
   return "http://127.0.0.1:8000";
 })();
+bulkInvoiceForm.elements.raw_text.placeholder = `Ejemplo:
+12 SHAMPOO ANA REGENEXT 400 ML
+24 TOALLITAS HUMEDAS ANA X 100
+----
+6 AR001 SHAMPOO ANA REGENEXT 400 ML`;
 let currentUser = null;
 let currentStockImportPreview = null;
 let currentPurchaseOrderPreview = null;
@@ -98,6 +127,8 @@ let currentInvoiceFilePreview = null;
 let productCatalog = [];
 let productLookup = { bySku: new Map(), byName: new Map() };
 let latestAvailabilityBySku = new Map();
+let currentAvailabilityRows = [];
+let availabilityFilter = "all";
 let apiRetryTimer = null;
 let apiConnectionAttempt = 0;
 
@@ -584,21 +615,46 @@ function updateMetrics(rows) {
   metricBlocked.textContent = formatNumber(totals.blocked);
 }
 
-function renderAvailability(rows) {
-  latestAvailabilityBySku = new Map(
-    rows.map((row) => [String(row.sku).toUpperCase(), row]),
-  );
-  productCountBadge.textContent = `${formatNumber(rows.length)} ${rows.length === 1 ? "producto" : "productos"}`;
-  if (!rows.length) {
-    availabilityBody.innerHTML = '<tr><td colspan="8">No hay productos cargados.</td></tr>';
-    updateMetrics([]);
+function availabilityState(row) {
+  const available = Number(row.available_to_invoice || 0);
+  const unitsPerCase = Math.max(1, Number(row.units_per_case || 1));
+  if (available <= 0) {
+    return { key: "none", label: "Sin disponibilidad", className: "unavailable" };
+  }
+  if (available <= unitsPerCase) {
+    return { key: "low", label: "Bajo · facturable", className: "low" };
+  }
+  return { key: "available", label: "Puedes facturar", className: "available" };
+}
+
+function renderAvailabilityTable() {
+  const search = normalizeProductText(availabilitySearch.value);
+  const visibleRows = currentAvailabilityRows.filter((row) => {
+    const state = availabilityState(row);
+    const matchesFilter =
+      availabilityFilter === "all" ||
+      (availabilityFilter === "facturable" && state.key !== "none") ||
+      availabilityFilter === state.key;
+    const matchesSearch =
+      !search || normalizeProductText(`${row.sku} ${row.name}`).includes(search);
+    return matchesFilter && matchesSearch;
+  });
+
+  productCountBadge.textContent =
+    visibleRows.length === currentAvailabilityRows.length
+      ? `${formatNumber(currentAvailabilityRows.length)} ${currentAvailabilityRows.length === 1 ? "producto" : "productos"}`
+      : `${formatNumber(visibleRows.length)} de ${formatNumber(currentAvailabilityRows.length)} productos`;
+  if (!visibleRows.length) {
+    availabilityBody.innerHTML =
+      '<tr><td colspan="8">No hay productos que coincidan con este filtro.</td></tr>';
     return;
   }
 
-  availabilityBody.innerHTML = rows
-    .map(
-      (row) => `
-        <tr>
+  availabilityBody.innerHTML = visibleRows
+    .map((row) => {
+      const state = availabilityState(row);
+      return `
+        <tr class="availability-row ${state.className}">
           <td>${escapeHtml(row.sku)}</td>
           <td>${escapeHtml(row.name)}</td>
           <td>${formatNumber(row.units_per_case)}</td>
@@ -606,12 +662,71 @@ function renderAvailability(rows) {
           <td>${formatNumber(row.reserved)}</td>
           <td>${formatNumber(row.invoiced_pending_dispatch)}</td>
           <td>${formatNumber(row.blocked_incident)}</td>
-          <td>${formatNumber(row.available_to_invoice)}</td>
+          <td><strong>${formatNumber(row.available_to_invoice)} u.</strong><span class="stock-state ${state.className}">${state.label}</span></td>
         </tr>
+      `;
+    })
+    .join("");
+}
+
+function renderStockDecisions(rows) {
+  const facturable = rows.filter((row) => Number(row.available_to_invoice || 0) > 0);
+  const low = rows.filter((row) => availabilityState(row).key === "low");
+  const unavailable = rows.filter((row) => availabilityState(row).key === "none");
+  const facturableUnits = facturable.reduce(
+    (total, row) => total + Number(row.available_to_invoice || 0),
+    0,
+  );
+  const cards = [
+    { filter: "facturable", label: "Puedes facturar", count: facturable.length, detail: `${formatNumber(facturableUnits)} unidades` },
+    { filter: "low", label: "Stock bajo", count: low.length, detail: "Una caja o menos" },
+    { filter: "none", label: "Sin disponibilidad", count: unavailable.length, detail: "No facturar" },
+  ];
+  stockDecisionSummary.innerHTML = cards
+    .map(
+      (card) => `
+        <button class="decision-card ${card.filter} ${availabilityFilter === card.filter ? "active" : ""}" type="button" data-availability-filter="${card.filter}" aria-pressed="${availabilityFilter === card.filter}">
+          <span>${card.label}</span><strong>${formatNumber(card.count)}</strong><small>${card.detail}</small>
+        </button>
       `,
     )
     .join("");
 
+  const attention = [...unavailable, ...low].sort(
+    (a, b) => Number(a.available_to_invoice || 0) - Number(b.available_to_invoice || 0),
+  );
+  const mostAvailable = [...facturable]
+    .sort((a, b) => Number(b.available_to_invoice || 0) - Number(a.available_to_invoice || 0))
+    .slice(0, 8);
+  const renderItems = (items) =>
+    items.length
+      ? items
+          .map((row) => {
+            const state = availabilityState(row);
+            return `<li><span><strong>${escapeHtml(row.name)}</strong><small>${escapeHtml(row.sku)}</small></span><span class="stock-state ${state.className}">${formatNumber(row.available_to_invoice)} u. · ${state.label}</span></li>`;
+          })
+          .join("")
+      : '<li class="empty-decision">No hay productos en esta categoria.</li>';
+  stockDecisionLists.innerHTML = `
+    <section><h3>Requieren atencion</h3><ul>${renderItems(attention)}</ul></section>
+    <section><h3>Mayor disponibilidad</h3><ul>${renderItems(mostAvailable)}</ul></section>
+  `;
+}
+
+function renderAvailability(rows) {
+  currentAvailabilityRows = rows;
+  latestAvailabilityBySku = new Map(
+    rows.map((row) => [String(row.sku).toUpperCase(), row]),
+  );
+  renderStockDecisions(rows);
+  if (!rows.length) {
+    productCountBadge.textContent = "0 productos";
+    availabilityBody.innerHTML = '<tr><td colspan="8">No hay productos cargados.</td></tr>';
+    updateMetrics([]);
+    return;
+  }
+
+  renderAvailabilityTable();
   updateMetrics(rows);
 }
 
@@ -636,7 +751,11 @@ function renderInvoiceTracking(rows) {
     .map(
       (row) => `
         <tr>
-          <td>${escapeHtml(row.invoice_number)}</td>
+          <td>
+            <strong>${escapeHtml(row.invoice_number)}</strong>
+            ${row.purchase_order_reference ? `<small class="trace-reference">${escapeHtml(row.purchase_order_reference)}</small>` : ""}
+            ${row.purchase_order_id ? `<button class="secondary-button compact-action trace-action" type="button" data-view-invoice-trace="${row.purchase_order_id}">Ver trazabilidad</button>` : ""}
+          </td>
           <td>${escapeHtml(row.customer_name || "Sin cliente")}</td>
           <td>${escapeHtml(row.status)}</td>
           <td>${formatNumber(row.total_units)}</td>
@@ -904,12 +1023,26 @@ function renderInvoiceFilePreview(preview) {
 
 async function showPurchaseOrderDetail(purchaseOrderId) {
   const detail = await apiRequest(`/purchase-orders/${purchaseOrderId}`);
+  const totals = detail.lines.reduce(
+    (summary, line) => ({
+      requested: summary.requested + Number(line.requested_quantity || 0),
+      invoiced: summary.invoiced + Number(line.invoiced_quantity || 0),
+      dispatched: summary.dispatched + Number(line.dispatched_quantity || 0),
+      missing: summary.missing + Number(line.missing_dispatch_quantity || 0),
+      remaining: summary.remaining + Number(line.remaining_to_invoice || 0),
+    }),
+    { requested: 0, invoiced: 0, dispatched: 0, missing: 0, remaining: 0 },
+  );
   purchaseOrderDetail.hidden = false;
   purchaseOrderDetailTitle.textContent = `${detail.chain_name} / ${detail.order_number}`;
   purchaseOrderDetailMeta.innerHTML = `
     <span><strong>Estado</strong>${escapeHtml(detail.status)}</span>
-    <span><strong>Fecha OC</strong>${formatDateOnly(detail.order_date)}</span>
-    <span><strong>Entrega</strong>${formatDateOnly(detail.delivery_due_date)}</span>
+    <span><strong>Pedido</strong>${formatNumber(totals.requested)} unidades</span>
+    <span><strong>Facturado</strong>${formatNumber(totals.invoiced)} unidades</span>
+    <span><strong>Despachado</strong>${formatNumber(totals.dispatched)} unidades</span>
+    <span><strong>Faltante reportado</strong>${formatNumber(totals.missing)} unidades</span>
+    <span><strong>Por facturar</strong>${formatNumber(totals.remaining)} unidades</span>
+    <span><strong>Entrega maxima</strong>${formatDateOnly(detail.delivery_due_date)}</span>
     <span><strong>Destino</strong>${escapeHtml(detail.destination || "-")}</span>
   `;
   purchaseOrderDetailLines.innerHTML = detail.lines
@@ -924,7 +1057,7 @@ async function showPurchaseOrderDetail(purchaseOrderId) {
       `,
     )
     .join("");
-  purchaseOrderTimeline.innerHTML = detail.events
+  purchaseOrderTimeline.innerHTML = `<h3>Historial completo</h3>${detail.events
     .map(
       (event) => `
         <article class="timeline-event">
@@ -933,7 +1066,7 @@ async function showPurchaseOrderDetail(purchaseOrderId) {
         </article>
       `,
     )
-    .join("");
+    .join("")}`;
   purchaseOrderDetail.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
@@ -943,15 +1076,30 @@ function renderBulkInvoicePreview(preview) {
   bulkInvoiceSummary.textContent = `${preview.invoice_count} facturas detectadas · ${preview.lines_total} lineas`;
   bulkInvoiceBody.innerHTML = preview.invoices
     .map(
-      (invoice) => `
+      (invoice) => {
+        const candidates = invoice.purchase_order_candidates || [];
+        const options = candidates
+          .map(
+            (order) =>
+              `<option value="${order.id}" ${order.id === invoice.suggested_purchase_order_id ? "selected" : ""}>${escapeHtml(order.chain_name)} · OC ${escapeHtml(order.order_number)}</option>`,
+          )
+          .join("");
+        const emptyOption = invoice.suggested_purchase_order_id
+          ? ""
+          : `<option value="" selected>${options ? "Selecciona la OC" : "No hay una OC compatible"}</option>`;
+        const orderControl = candidates.length
+          ? `<select name="bulk_purchase_order_id" data-block-number="${invoice.block_number}" required>${emptyOption}${options}</select>`
+          : `<input type="number" min="1" name="bulk_purchase_order_id" data-block-number="${invoice.block_number}" placeholder="ID OC (sin coincidencia)" required />`;
+        return `
         <tr>
           <td>${invoice.block_number}</td>
-          <td><input type="text" name="bulk_invoice_number" data-block-number="${invoice.block_number}" placeholder="Numero factura ${invoice.block_number}" required /></td>
-          <td><input type="number" min="1" name="bulk_purchase_order_id" data-block-number="${invoice.block_number}" placeholder="ID OC" required /></td>
+          <td><input type="text" name="bulk_invoice_number" data-block-number="${invoice.block_number}" value="${escapeHtml(invoice.suggested_invoice_number || "")}" placeholder="Numero factura ${invoice.block_number}" required /></td>
+          <td>${orderControl}</td>
           <td>${formatNumber(invoice.total_units)}</td>
           <td>${escapeHtml(invoice.lines.map((line) => `${line.quantity} ${line.product_name}`).join(" | "))}</td>
         </tr>
-      `,
+      `;
+      },
     )
     .join("");
 }
@@ -997,9 +1145,9 @@ async function checkApi() {
     }
   } catch (error) {
     const retrySeconds = Math.min(5 + apiConnectionAttempt * 2, 20);
-    setApiStatus("Iniciando servidor...", false);
+    setApiStatus("Reconectando...", false);
     setMessage(
-      `El servidor gratuito se esta iniciando. Reintentaremos automaticamente en ${retrySeconds} segundos.`,
+      `No pudimos conectar con el sistema. Reintentaremos automaticamente en ${retrySeconds} segundos.`,
       "info",
     );
     apiRetryTimer = window.setTimeout(checkApi, retrySeconds * 1000);
@@ -1256,7 +1404,7 @@ bulkInvoiceForm.addEventListener("submit", async (event) => {
       body: JSON.stringify(payload),
     });
     renderBulkInvoicePreview(preview);
-    setMessage("Bloques detectados. Ahora completa el numero de cada factura.", "success");
+    setMessage("Facturas detectadas. Revisa los numeros y las OCs sugeridas antes de registrar.", "success");
   } catch (error) {
     currentBulkInvoicePreview = null;
     bulkInvoicePreview.hidden = true;
@@ -1271,51 +1419,53 @@ confirmBulkInvoiceButton.addEventListener("click", async () => {
   const reason = bulkInvoiceForm.elements.reason.value.trim();
   const invoiceNumberInputs = [...bulkInvoiceBody.querySelectorAll('input[name="bulk_invoice_number"]')];
   const invoiceNumbers = invoiceNumberInputs.map((input) => input.value.trim()).filter(Boolean);
-  const purchaseOrderInputs = [...bulkInvoiceBody.querySelectorAll('input[name="bulk_purchase_order_id"]')];
+  const purchaseOrderInputs = [...bulkInvoiceBody.querySelectorAll('[name="bulk_purchase_order_id"]')];
   const purchaseOrderIds = purchaseOrderInputs.map((input) => Number(input.value)).filter((value) => value > 0);
 
   if (
     invoiceNumbers.length !== currentBulkInvoicePreview.invoices.length ||
     purchaseOrderIds.length !== currentBulkInvoicePreview.invoices.length
   ) {
-    setMessage("Debes escribir un numero de factura y el ID de su OC para cada bloque.", "error");
+    setMessage("Completa el numero de factura y selecciona una OC para cada bloque.", "error");
     return;
   }
 
-  let successCount = 0;
   try {
-    for (const invoice of currentBulkInvoicePreview.invoices) {
+    const invoices = currentBulkInvoicePreview.invoices.map((invoice) => {
       const invoiceNumber = bulkInvoiceBody.querySelector(
-        `input[data-block-number="${invoice.block_number}"]`,
+        `input[name="bulk_invoice_number"][data-block-number="${invoice.block_number}"]`,
       ).value.trim();
       const purchaseOrderId = Number(
         bulkInvoiceBody.querySelector(
-          `input[name="bulk_purchase_order_id"][data-block-number="${invoice.block_number}"]`,
+          `[name="bulk_purchase_order_id"][data-block-number="${invoice.block_number}"]`,
         ).value,
       );
-      await apiRequest("/invoices", {
-        method: "POST",
-        body: JSON.stringify({
-          invoice_number: invoiceNumber,
-          purchase_order_id: purchaseOrderId,
-          customer_name: customerName,
-          reason,
-          lines: invoice.lines.map((line) => ({
-            sku: line.sku,
-            quantity: line.quantity,
-          })),
-        }),
-      });
-      successCount += 1;
-    }
+      return {
+        invoice_number: invoiceNumber,
+        purchase_order_id: purchaseOrderId,
+        customer_name: customerName,
+        reason,
+        lines: invoice.lines.map((line) => ({ sku: line.sku, quantity: line.quantity })),
+      };
+    });
+
+    confirmBulkInvoiceButton.disabled = true;
+    confirmBulkInvoiceButton.textContent = "Registrando...";
+    const created = await apiRequest("/invoices/bulk", {
+      method: "POST",
+      body: JSON.stringify({ invoices }),
+    });
 
     bulkInvoiceForm.reset();
     bulkInvoicePreview.hidden = true;
     currentBulkInvoicePreview = null;
-    setMessage(`Facturas registradas: ${successCount}.`, "success");
+    setMessage(`Listo: ${created.length} facturas registradas sin cargas parciales.`, "success");
     await loadAvailability();
   } catch (error) {
-    setMessage(`Se registraron ${successCount} facturas antes del error: ${error.message}`, "error");
+    setMessage(`No se registro ninguna factura: ${error.message}`, "error");
+  } finally {
+    confirmBulkInvoiceButton.disabled = false;
+    confirmBulkInvoiceButton.textContent = "Registrar facturas";
   }
 });
 
@@ -1633,6 +1783,15 @@ userUpdateForm.addEventListener("submit", async (event) => {
 });
 
 document.addEventListener("click", (event) => {
+  const availabilityFilterButton = event.target.closest("[data-availability-filter]");
+  if (availabilityFilterButton) {
+    const requestedFilter = availabilityFilterButton.dataset.availabilityFilter;
+    availabilityFilter = availabilityFilter === requestedFilter ? "all" : requestedFilter;
+    renderStockDecisions(currentAvailabilityRows);
+    renderAvailabilityTable();
+    return;
+  }
+
   const applyOrderButton = event.target.closest("[data-apply-order-index]");
   if (applyOrderButton) {
     applyPurchaseOrderPreview(Number(applyOrderButton.dataset.applyOrderIndex));
@@ -1643,6 +1802,15 @@ document.addEventListener("click", (event) => {
   if (viewPurchaseOrderButton) {
     showPurchaseOrderDetail(Number(viewPurchaseOrderButton.dataset.viewPurchaseOrder)).catch((error) =>
       setMessage(error.message, "error"),
+    );
+    return;
+  }
+
+  const viewInvoiceTraceButton = event.target.closest("[data-view-invoice-trace]");
+  if (viewInvoiceTraceButton) {
+    activateModule("purchase-orders");
+    showPurchaseOrderDetail(Number(viewInvoiceTraceButton.dataset.viewInvoiceTrace)).catch(
+      (error) => setMessage(error.message, "error"),
     );
     return;
   }
@@ -1688,6 +1856,8 @@ document.addEventListener("click", (event) => {
     bulkApprovalForm.elements.approval_id.focus();
   }
 });
+
+availabilitySearch.addEventListener("input", renderAvailabilityTable);
 
 closePurchaseOrderDetailButton.addEventListener("click", () => {
   purchaseOrderDetail.hidden = true;

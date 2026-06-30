@@ -46,12 +46,14 @@ def test_tracking_summaries_keep_pending_quantities_consistent():
         must_change_password=False,
     )
     product = Product(sku="AE001", name="Shampoo", units_per_case=12)
-    db.add_all([user, product])
+    purchase_order = PurchaseOrder(chain_name="TIA", order_number="OC-123")
+    db.add_all([user, product, purchase_order])
     db.flush()
 
     invoice = Invoice(
         invoice_number="001-001-123",
         customer_name="TIA",
+        purchase_order_id=purchase_order.id,
         registered_by_user_id=user.id,
     )
     db.add(invoice)
@@ -85,6 +87,8 @@ def test_tracking_summaries_keep_pending_quantities_consistent():
     assert invoices[0].missing_units == 1
     assert invoices[0].pending_units == 5
     assert invoices[0].registered_by == "Usuario Ventas"
+    assert invoices[0].purchase_order_id == purchase_order.id
+    assert invoices[0].purchase_order_reference == "TIA / OC-123"
 
     pending = list_pending_dispatches(db)
     assert len(pending) == 1
